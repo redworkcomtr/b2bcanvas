@@ -6,12 +6,15 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['issue_id', 'user_id', 'body', 'attachments'])]
+#[Fillable(['issue_id', 'user_id', 'body', 'attachments', 'internal'])]
 class IssueComment extends Model
 {
     protected function casts(): array
     {
-        return ['attachments' => 'array'];
+        return [
+            'attachments' => 'array',
+            'internal' => 'boolean',
+        ];
     }
 
     public function issue(): BelongsTo

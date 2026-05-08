@@ -348,9 +348,14 @@ onMounted(() => {
                     </div>
                     <div v-if="order.issues?.length" class="grid gap-3">
                         <div v-for="issue in order.issues" :key="issue.id" class="rounded-md border border-slate-200 p-3">
-                            <Badge :tone="statusTone(issue.status)">{{ issue.status }}</Badge>
-                            <p class="mt-2 text-sm text-slate-700">{{ issue.description }}</p>
-                            <p class="mt-1 text-xs text-slate-500">{{ issue.comments?.length ?? 0 }} comments</p>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <Badge :tone="statusTone(issue.status)">{{ issue.status }}</Badge>
+                                <Badge :tone="issue.priority === 'urgent' ? 'danger' : issue.priority === 'high' ? 'warning' : 'neutral'">{{ issue.priority }}</Badge>
+                                <Badge v-if="issue.unread_notes_count" tone="info">{{ issue.unread_notes_count }} unread</Badge>
+                            </div>
+                            <p class="mt-2 text-sm font-semibold text-slate-800">{{ issue.type === 'ticket' ? 'Ticket' : 'Claim' }} #{{ issue.id }}</p>
+                            <p class="mt-1 text-sm text-slate-700">{{ issue.description }}</p>
+                            <p class="mt-1 text-xs text-slate-500">{{ issue.comments?.length ?? 0 }} comments · {{ issue.assigned_to?.name ?? issue.assignedTo?.name ?? 'Unassigned' }}</p>
                         </div>
                     </div>
                     <EmptyState v-else title="No issues for this order" description="Tickets and claims linked to this order will appear here." :icon="LifeBuoy" />

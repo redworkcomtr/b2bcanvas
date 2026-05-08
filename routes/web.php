@@ -61,6 +61,10 @@ Route::prefix('api')->group(function () {
         Route::post('/required-actions/{requiredAction}/resolve', [RequiredActionController::class, 'resolve']);
         Route::post('/required-actions/{requiredAction}/reopen', [RequiredActionController::class, 'reopen']);
         Route::post('/required-actions/{requiredAction}/escalate', [RequiredActionController::class, 'escalate']);
+        Route::get('/issues/{issue}', [IssueController::class, 'show'])->whereNumber('issue');
+        Route::patch('/issues/{issue}', [IssueController::class, 'update'])->whereNumber('issue');
+        Route::post('/issues/{issue}/comments', [IssueController::class, 'comment'])->whereNumber('issue');
+        Route::post('/issues/{issue}/read', [IssueController::class, 'markRead'])->whereNumber('issue');
         Route::post('/issues/{type}', [IssueController::class, 'store']);
         Route::patch('/notifications/subscriptions/{subscription}', [NotificationSubscriptionController::class, 'update']);
 

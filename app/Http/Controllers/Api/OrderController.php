@@ -38,7 +38,7 @@ class OrderController extends Controller
         $direction = $validated['direction'] ?? 'desc';
 
         $orders = $query
-            ->with(['items.variant.productType', 'issues', 'requiredActions.comments.user'])
+            ->with(['items.variant.productType', 'issues.comments.user', 'issues.assignedTo', 'requiredActions.comments.user'])
             ->orderBy($sort, $direction)
             ->orderByDesc('id')
             ->paginate((int) ($validated['per_page'] ?? 25))
@@ -69,6 +69,7 @@ class OrderController extends Controller
             ->with([
                 'items.variant.productType',
                 'issues.comments.user',
+                'issues.assignedTo',
                 'requiredActions.comments.user',
                 'statusEvents.user',
                 'mediaFiles',
@@ -687,6 +688,7 @@ class OrderController extends Controller
         return $order->fresh([
             'items.variant.productType',
             'issues.comments.user',
+            'issues.assignedTo',
             'requiredActions.comments.user',
             'statusEvents.user',
             'mediaFiles',

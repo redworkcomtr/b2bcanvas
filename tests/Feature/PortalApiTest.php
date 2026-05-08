@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\ImportRow;
+use App\Models\Issue;
+use App\Models\MediaFile;
 use App\Models\Order;
 use App\Models\ProductMapping;
 use App\Models\ProductVariant;
@@ -78,6 +80,103 @@ class PortalApiTest extends TestCase
                 'users',
                 'userInvites',
             ]);
+    }
+
+    public function test_ticket_workflow_updates_status_comments_attachments_and_read_state(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $support = User::query()->where('email', 'support@example.test')->firstOrFail();
+        $ticket = Issue::query()->where('type', 'ticket')->firstOrFail();
+        $media = MediaFile::query()->create([
+            'tenant_id' => $owner->tenant_id,
+            'user_id' => $owner->id,
+            'collection' => 'issue_attachment',
+            'disk' => 'local',
+            'path' => 'issue-attachments/delivery-proof.pdf',
+            'original_name' => 'delivery-proof.pdf',
+            'mime_type' => 'application/pdf',
+            'size' => 1280,
+            'checksum' => hash('sha256', 'delivery-proof'),
+            'scan_state' => 'clean',
+            'metadata' => [],
+        ]);
+
+        $this->actingAs($owner);
+
+        $this->patchJson('/api/issues/'.$ticket->id, [
+            'status' => 'waiting_customer',
+            'priority' => 'urgent',
+            'assigned_to_id' => $support->id,
+        ])->assertOk()
+            ->assertJsonPath('status', 'waiting_customer')
+            ->assertJsonPath('priority', 'urgent')
+            ->assertJsonPath('assigned_to_id', $support->id);
+
+        $this->postJson('/api/issues/'.$ticket->id.'/comments', [
+            'body' => 'Internal carrier note with delivery proof attached.',
+            'internal' => true,
+            'attachments' => [[
+                'id' => $media->id,
+                'original_name' => $media->original_name,
+            ]],
+        ])->assertOk()
+            ->assertJsonPath('comments.3.body', 'Internal carrier note with delivery proof attached.')
+            ->assertJsonPath('comments.3.internal', true)
+            ->assertJsonPath('total_notes_count', 4);
+
+        $this->postJson('/api/issues/'.$ticket->id.'/read')
+            ->assertOk()
+            ->assertJsonPath('unread_notes_count', 0);
+
+        $ticket->refresh()->load('comments');
+        $this->assertSame('waiting_customer', $ticket->status);
+        $this->assertSame('urgent', $ticket->priority);
+        $this->assertSame($support->id, $ticket->assigned_to_id);
+        $this->assertTrue($ticket->comments->last()->internal);
+        $this->assertSame($media->id, $ticket->comments->last()->attachments[0]['id']);
+        $this->assertDatabaseHas('audit_logs', [
+            'event' => 'issue.comment_added',
+            'auditable_type' => Issue::class,
+            'auditable_id' => $ticket->id,
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'event' => 'issue.marked_read',
+            'auditable_id' => $ticket->id,
+        ]);
+    }
+
+    public function test_ticket_public_reply_increments_unread_for_assignee(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $support = User::query()->where('email', 'support@example.test')->firstOrFail();
+        $ticket = Issue::query()->where('type', 'ticket')->firstOrFail();
+        $ticket->update([
+            'assigned_to_id' => $support->id,
+            'unread_notes_count' => 0,
+        ]);
+
+        $this->actingAs($owner);
+
+        $this->postJson('/api/issues/'.$ticket->id.'/comments', [
+            'body' => 'Customer-facing update that should be unread for the assignee.',
+            'internal' => false,
+        ])->assertOk()
+            ->assertJsonPath('unread_notes_count', 1);
+    }
+
+    public function test_viewer_cannot_manage_tickets(): void
+    {
+        $this->seed();
+        $viewer = User::query()->where('email', 'viewer@example.test')->firstOrFail();
+        $ticket = Issue::query()->where('type', 'ticket')->firstOrFail();
+
+        $this->actingAs($viewer);
+
+        $this->getJson('/api/issues/'.$ticket->id)->assertForbidden();
+        $this->patchJson('/api/issues/'.$ticket->id, ['status' => 'closed'])->assertForbidden();
+        $this->postJson('/api/issues/'.$ticket->id.'/comments', ['body' => 'viewer attempt'])->assertForbidden();
     }
 
     public function test_import_preview_routes_unmapped_rows_to_actions(): void

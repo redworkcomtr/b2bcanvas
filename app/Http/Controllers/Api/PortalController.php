@@ -37,7 +37,7 @@ class PortalController extends Controller
             ],
             'orders' => Order::query()
                 ->forTenant($tenantId)
-                ->with(['items.variant.productType', 'issues', 'requiredActions.comments.user'])
+                ->with(['items.variant.productType', 'issues.comments.user', 'issues.assignedTo', 'requiredActions.comments.user'])
                 ->latest('submitted_at')
                 ->get(),
             'savedViews' => SavedView::query()
@@ -59,7 +59,7 @@ class PortalController extends Controller
                 ->get(),
             'issues' => Issue::query()
                 ->forTenant($tenantId)
-                ->with('order')
+                ->with(['order', 'comments.user', 'assignedTo'])
                 ->latest('last_activity_at')
                 ->get(),
             'requiredActions' => RequiredAction::query()

@@ -170,9 +170,13 @@ export type Order = {
 export type Issue = {
     id: number;
     order_id: number | null;
+    assigned_to_id: number | null;
     order?: Order | null;
+    assigned_to?: User | null;
+    assignedTo?: User | null;
     type: 'ticket' | 'claim';
     status: string;
+    priority: string;
     request_type: string | null;
     reasons: string[] | null;
     description: string;
@@ -180,6 +184,9 @@ export type Issue = {
     total_notes_count: number;
     unread_notes_count: number;
     last_activity_at: string | null;
+    last_read_at: string | null;
+    resolved_at: string | null;
+    closed_at: string | null;
     created_at: string;
     comments?: IssueComment[];
 };
@@ -190,6 +197,7 @@ export type IssueComment = {
     user_id: number | null;
     body: string;
     attachments: unknown[] | null;
+    internal: boolean;
     created_at: string;
     user?: User | null;
 };

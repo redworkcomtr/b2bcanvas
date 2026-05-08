@@ -29,7 +29,7 @@ export function statusTone(status: string) {
         return 'success';
     }
 
-    if (['action_needed', 'validation_failed', 'needs_action', 'open'].includes(status)) {
+    if (['action_needed', 'validation_failed', 'needs_action', 'open', 'waiting_customer'].includes(status)) {
         return 'warning';
     }
 

@@ -220,11 +220,15 @@ class DatabaseSeeder extends Seeder
             ]);
         });
 
-        Issue::query()->create([
+        $supportUser = User::query()->where('email', 'support@example.test')->first();
+
+        $ticket = Issue::query()->create([
             'tenant_id' => $tenant->id,
             'order_id' => $orders[1]->id,
+            'assigned_to_id' => $supportUser?->id,
             'type' => 'ticket',
             'status' => 'in_progress',
+            'priority' => 'high',
             'request_type' => 'Support',
             'reasons' => ['Never Received'],
             'description' => 'Customer has not received the package and asks for tracking status.',
@@ -234,11 +238,33 @@ class DatabaseSeeder extends Seeder
             'last_activity_at' => now()->subHours(8),
         ]);
 
-        Issue::query()->create([
+        $ticket->comments()->createMany([
+            [
+                'user_id' => $user->id,
+                'body' => 'Customer opened a tracking support request.',
+                'attachments' => [],
+                'internal' => false,
+            ],
+            [
+                'user_id' => $supportUser?->id,
+                'body' => 'Carrier scan is missing after production handoff. Monitoring for next scan.',
+                'attachments' => [],
+                'internal' => true,
+            ],
+            [
+                'user_id' => $user->id,
+                'body' => 'Customer asked for an updated ETA this morning.',
+                'attachments' => [],
+                'internal' => false,
+            ],
+        ]);
+
+        $claim = Issue::query()->create([
             'tenant_id' => $tenant->id,
             'order_id' => $orders[0]->id,
             'type' => 'claim',
             'status' => 'in_progress',
+            'priority' => 'normal',
             'request_type' => 'Credit',
             'reasons' => ['Damaged In Transit'],
             'description' => 'Customer reports corner damage and requests a credit.',
@@ -246,6 +272,13 @@ class DatabaseSeeder extends Seeder
             'total_notes_count' => 1,
             'unread_notes_count' => 1,
             'last_activity_at' => now()->subDay(),
+        ]);
+
+        $claim->comments()->create([
+            'user_id' => $user->id,
+            'body' => 'Customer reports corner damage and requests a credit.',
+            'attachments' => [],
+            'internal' => false,
         ]);
 
         RequiredAction::query()->create([

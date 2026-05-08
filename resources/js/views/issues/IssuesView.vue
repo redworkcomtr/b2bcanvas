@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { AlertTriangle, CheckCircle2, MessageSquarePlus, RefreshCcw, ShieldAlert } from 'lucide-vue-next';
+import { AlertTriangle, CheckCircle2, Eye, MessageSquarePlus, Paperclip, RefreshCcw, Save, ShieldAlert } from 'lucide-vue-next';
 import { computed, reactive, ref, watch } from 'vue';
+import { RouterLink } from 'vue-router';
 
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Card from '@/components/ui/Card.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
+import FileDropzone from '@/components/ui/FileDropzone.vue';
 import Input from '@/components/ui/Input.vue';
 import Select from '@/components/ui/Select.vue';
 import DataTable from '@/components/ui/Table.vue';
@@ -13,12 +15,18 @@ import Tabs from '@/components/ui/Tabs.vue';
 import Textarea from '@/components/ui/Textarea.vue';
 import { dateLabel, humanize, statusTone } from '@/lib/utils';
 import { usePortalStore } from '@/stores/portal';
-import type { RequiredAction } from '@/types/portal';
+import type { Issue, MediaFile, RequiredAction } from '@/types/portal';
 
 const props = defineProps<{ mode: 'tickets' | 'claims' | 'actions' }>();
 const store = usePortalStore();
 const status = ref('all');
 const orderNumber = ref('');
+const selectedIssueId = ref<number | null>(null);
+const issueComment = ref('');
+const issueCommentInternal = ref(false);
+const issueAttachments = ref<MediaFile[]>([]);
+const issueError = ref('');
+const issueBusy = ref(false);
 const selectedActionId = ref<number | null>(null);
 const actionComment = ref('');
 const resolutionNote = ref('');
@@ -47,10 +55,18 @@ const form = reactive({
     phone: '',
 });
 
+const issueUpdate = reactive({
+    status: '',
+    priority: 'normal',
+    assigned_to_id: '',
+});
+
 const issueStatusTabs = [
     { label: 'All', value: 'all' },
     { label: 'Open', value: 'open' },
     { label: 'In Progress', value: 'in_progress' },
+    { label: 'Waiting', value: 'waiting_customer' },
+    { label: 'Resolved', value: 'resolved' },
     { label: 'Closed', value: 'closed' },
 ];
 
@@ -83,6 +99,17 @@ const issueRows = computed(() => {
             && order.toLowerCase().includes(orderNumber.value.toLowerCase());
     });
 });
+
+const selectedIssue = computed<Issue | null>(() => {
+    if (!issueRows.value.length) {
+        return null;
+    }
+
+    return issueRows.value.find((issue) => issue.id === selectedIssueId.value) ?? issueRows.value[0] ?? null;
+});
+
+const selectedIssueComments = computed(() => selectedIssue.value?.comments ?? []);
+const supportUsers = computed(() => store.users.filter((user) => user.active && ['owner', 'admin', 'support'].includes(user.role)));
 
 const actionRows = computed(() => store.requiredActions.filter((action) => {
     const order = action.order?.order_number ?? '';
@@ -122,8 +149,19 @@ const canResolveSelected = computed(() => {
 
 watch(() => props.mode, () => {
     status.value = 'all';
+    selectedIssueId.value = null;
     selectedActionId.value = null;
 });
+
+watch(() => selectedIssue.value?.id, () => {
+    issueError.value = '';
+    issueComment.value = '';
+    issueCommentInternal.value = false;
+    issueAttachments.value = [];
+    issueUpdate.status = selectedIssue.value?.status ?? '';
+    issueUpdate.priority = selectedIssue.value?.priority ?? 'normal';
+    issueUpdate.assigned_to_id = String(selectedIssue.value?.assigned_to_id ?? '');
+}, { immediate: true });
 
 watch(() => selectedAction.value?.id, () => {
     actionError.value = '';
@@ -179,6 +217,36 @@ function payloadText(value: unknown) {
     return String(value);
 }
 
+function selectIssue(issue: Issue) {
+    selectedIssueId.value = issue.id;
+}
+
+function priorityTone(priority?: string) {
+    if (priority === 'urgent') {
+        return 'danger';
+    }
+
+    if (priority === 'high') {
+        return 'warning';
+    }
+
+    if (priority === 'low') {
+        return 'info';
+    }
+
+    return 'neutral';
+}
+
+function assigneeName(issue: Issue) {
+    return issue.assigned_to?.name ?? issue.assignedTo?.name ?? 'Unassigned';
+}
+
+function attachmentValue(attachment: unknown, key: string, fallback = '') {
+    const item = attachment as Record<string, unknown>;
+
+    return String(item[key] ?? fallback);
+}
+
 async function submitIssue() {
     if (props.mode === 'actions' || !form.description) {
         return;
@@ -197,6 +265,77 @@ async function submitIssue() {
     });
 
     form.description = '';
+}
+
+async function runIssueOperation(operation: () => Promise<unknown>) {
+    issueError.value = '';
+    issueBusy.value = true;
+    try {
+        await operation();
+    } catch (error) {
+        issueError.value = error instanceof Error ? error.message : 'The ticket could not be updated.';
+    } finally {
+        issueBusy.value = false;
+    }
+}
+
+async function saveSelectedIssue() {
+    const issue = selectedIssue.value;
+    if (!issue) {
+        return;
+    }
+
+    await runIssueOperation(async () => {
+        const updated = await store.updateIssue(issue, {
+            status: issueUpdate.status,
+            priority: issueUpdate.priority,
+            assigned_to_id: issueUpdate.assigned_to_id ? Number(issueUpdate.assigned_to_id) : null,
+        });
+        selectedIssueId.value = updated.id;
+    });
+}
+
+async function markSelectedIssueRead() {
+    const issue = selectedIssue.value;
+    if (!issue) {
+        return;
+    }
+
+    await runIssueOperation(async () => {
+        const updated = await store.markIssueRead(issue);
+        selectedIssueId.value = updated.id;
+    });
+}
+
+async function uploadIssueAttachment(file: File) {
+    await runIssueOperation(async () => {
+        const media = await store.uploadFile(file, 'issue_attachment');
+        issueAttachments.value = [...issueAttachments.value, media];
+    });
+}
+
+function removeIssueAttachment(file: MediaFile) {
+    issueAttachments.value = issueAttachments.value.filter((item) => item.id !== file.id);
+}
+
+async function addIssueComment() {
+    const issue = selectedIssue.value;
+    const body = issueComment.value.trim();
+    if (!issue || !body) {
+        return;
+    }
+
+    await runIssueOperation(async () => {
+        const updated = await store.addIssueComment(issue, {
+            body,
+            attachments: issueAttachments.value,
+            internal: issueCommentInternal.value,
+        });
+        selectedIssueId.value = updated.id;
+        issueComment.value = '';
+        issueAttachments.value = [];
+        issueCommentInternal.value = false;
+    });
 }
 
 async function runActionOperation(operation: () => Promise<unknown>) {
@@ -462,7 +601,7 @@ async function reopenAction() {
             </Card>
         </div>
 
-        <div v-else class="grid gap-5 xl:grid-cols-[1fr_420px]">
+        <div v-else class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_430px]">
             <Card>
                 <div class="mb-4 grid gap-3 md:grid-cols-[auto_1fr] md:items-end">
                     <div class="grid gap-1.5">
@@ -476,18 +615,28 @@ async function reopenAction() {
                     <thead class="bg-slate-50 text-xs uppercase text-slate-500">
                         <tr>
                             <th class="px-4 py-3">Date</th>
-                            <th class="px-4 py-3">Last Activity</th>
                             <th class="px-4 py-3">Status</th>
+                            <th class="px-4 py-3">Priority</th>
+                            <th class="px-4 py-3">Assignee</th>
                             <th class="px-4 py-3">Order Number</th>
                             <th class="px-4 py-3">Description</th>
                             <th class="px-4 py-3">Notes</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-200">
-                        <tr v-for="issue in issueRows" :key="issue.id">
+                    <tbody class="divide-y divide-slate-200 bg-white">
+                        <tr
+                            v-for="issue in issueRows"
+                            :key="issue.id"
+                            class="cursor-pointer hover:bg-slate-50"
+                            :class="selectedIssue?.id === issue.id ? 'bg-teal-50/70' : ''"
+                            tabindex="0"
+                            @click="selectIssue(issue)"
+                            @keydown.enter="selectIssue(issue)"
+                        >
                             <td class="px-4 py-3">{{ dateLabel(issue.created_at) }}</td>
-                            <td class="px-4 py-3">{{ dateLabel(issue.last_activity_at) }}</td>
                             <td class="px-4 py-3"><Badge :tone="statusTone(issue.status)">{{ humanize(issue.status) }}</Badge></td>
+                            <td class="px-4 py-3"><Badge :tone="priorityTone(issue.priority)">{{ issue.priority }}</Badge></td>
+                            <td class="px-4 py-3 text-slate-600">{{ assigneeName(issue) }}</td>
                             <td class="px-4 py-3">{{ issue.order?.order_number ?? '-' }}</td>
                             <td class="px-4 py-3">{{ issue.description }}</td>
                             <td class="px-4 py-3">{{ issue.total_notes_count }} ({{ issue.unread_notes_count }} new)</td>
@@ -503,36 +652,156 @@ async function reopenAction() {
                 />
             </Card>
 
-            <Card>
-                <div class="mb-4 flex items-center gap-2">
-                    <MessageSquarePlus class="h-5 w-5 text-teal-700" />
-                    <h3 class="text-lg font-bold text-slate-950">Open {{ props.mode === 'tickets' ? 'Ticket' : 'Claim' }}</h3>
-                </div>
-                <div class="grid gap-4">
-                    <Select v-model="form.order_id" label="Select order">
-                        <option value="">No order selected</option>
-                        <option v-for="order in store.orders" :key="order.id" :value="order.id">{{ order.order_number }} · {{ order.customer_name }}</option>
-                    </Select>
-                    <Select v-model="form.request_type" label="Request type">
-                        <option value="Support">Support</option>
-                        <option value="Credit">Credit</option>
-                    </Select>
-                    <Select v-model="form.reason" label="Reason">
-                        <option>Damaged In Transit</option>
-                        <option>Never Received</option>
-                        <option>Ink Spits</option>
-                        <option>Streaking Or Banding</option>
-                        <option>Other</option>
-                    </Select>
-                    <Textarea v-model="form.description" label="Description" required placeholder="Enter description" :rows="5" />
-                    <div class="grid gap-3 md:grid-cols-2">
-                        <Input v-model="form.name" label="Name" />
-                        <Input v-model="form.email" label="Email" />
+            <div class="grid gap-5">
+                <Card>
+                    <div v-if="selectedIssue" class="grid gap-5">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0">
+                                <div class="mb-2 flex flex-wrap items-center gap-2">
+                                    <Badge :tone="statusTone(selectedIssue.status)">{{ humanize(selectedIssue.status) }}</Badge>
+                                    <Badge :tone="priorityTone(selectedIssue.priority)">{{ selectedIssue.priority }}</Badge>
+                                    <Badge v-if="selectedIssue.unread_notes_count" tone="info">{{ selectedIssue.unread_notes_count }} unread</Badge>
+                                </div>
+                                <h3 class="text-xl font-bold text-slate-950">{{ props.mode === 'tickets' ? 'Ticket' : 'Claim' }} #{{ selectedIssue.id }}</h3>
+                                <p class="mt-1 text-sm text-slate-600">{{ selectedIssue.description }}</p>
+                            </div>
+                            <MessageSquarePlus class="h-6 w-6 shrink-0 text-teal-700" />
+                        </div>
+
+                        <div class="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-4">
+                            <div class="grid gap-3 sm:grid-cols-2">
+                                <Select v-model="issueUpdate.status" label="Status">
+                                    <option value="open">Open</option>
+                                    <option value="in_progress">In progress</option>
+                                    <option value="waiting_customer">Waiting customer</option>
+                                    <option value="resolved">Resolved</option>
+                                    <option value="closed">Closed</option>
+                                </Select>
+                                <Select v-model="issueUpdate.priority" label="Priority">
+                                    <option value="low">Low</option>
+                                    <option value="normal">Normal</option>
+                                    <option value="high">High</option>
+                                    <option value="urgent">Urgent</option>
+                                </Select>
+                            </div>
+                            <Select v-model="issueUpdate.assigned_to_id" label="Assignee">
+                                <option value="">Unassigned</option>
+                                <option v-for="user in supportUsers" :key="user.id" :value="user.id">{{ user.name }} · {{ user.role }}</option>
+                            </Select>
+                            <div v-if="selectedIssue.order" class="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+                                <span class="font-semibold text-slate-700">Linked order</span>
+                                <RouterLink :to="`/orders/${selectedIssue.order.uuid}`" class="ml-2 font-bold text-teal-700">{{ selectedIssue.order.order_number }}</RouterLink>
+                            </div>
+                            <div v-if="issueError" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+                                {{ issueError }}
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <Button :disabled="issueBusy" @click="saveSelectedIssue">
+                                    <Save class="h-4 w-4" />
+                                    Save
+                                </Button>
+                                <Button variant="outline" :disabled="issueBusy || selectedIssue.unread_notes_count === 0" @click="markSelectedIssueRead">
+                                    <Eye class="h-4 w-4" />
+                                    Mark Read
+                                </Button>
+                            </div>
+                        </div>
+
+                        <div class="border-t border-slate-200 pt-4">
+                            <div class="mb-3 flex items-center justify-between gap-3">
+                                <h4 class="font-semibold text-slate-950">Conversation</h4>
+                                <span class="text-xs font-medium text-slate-500">{{ selectedIssueComments.length }} comments</span>
+                            </div>
+                            <div class="grid max-h-80 gap-3 overflow-auto pr-1">
+                                <div
+                                    v-for="comment in selectedIssueComments"
+                                    :key="comment.id"
+                                    class="rounded-md border p-3"
+                                    :class="comment.internal ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'"
+                                >
+                                    <div class="mb-1 flex items-center justify-between gap-3">
+                                        <span class="text-sm font-semibold text-slate-900">{{ comment.user?.name ?? 'System' }}</span>
+                                        <span class="text-xs text-slate-500">{{ dateLabel(comment.created_at) }}</span>
+                                    </div>
+                                    <Badge v-if="comment.internal" tone="warning">internal</Badge>
+                                    <p class="mt-2 whitespace-pre-line text-sm text-slate-600">{{ comment.body }}</p>
+                                    <div v-if="comment.attachments?.length" class="mt-3 grid gap-2">
+                                        <a
+                                            v-for="attachment in comment.attachments"
+                                            :key="attachmentValue(attachment, 'id', attachmentValue(attachment, 'url'))"
+                                            :href="attachmentValue(attachment, 'url', '#')"
+                                            class="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-teal-800"
+                                        >
+                                            <Paperclip class="h-3.5 w-3.5" />
+                                            {{ attachmentValue(attachment, 'original_name', 'Attachment') }}
+                                        </a>
+                                    </div>
+                                </div>
+                                <p v-if="selectedIssueComments.length === 0" class="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-500">
+                                    No comments yet.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="grid gap-3 border-t border-slate-200 pt-4">
+                            <Textarea v-model="issueComment" label="Reply" placeholder="Write a customer-facing reply or internal note" :rows="4" />
+                            <label class="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                                <input v-model="issueCommentInternal" type="checkbox" class="h-4 w-4 rounded border-slate-300 text-teal-700">
+                                Internal note
+                            </label>
+                            <FileDropzone label="Attach file" description="Images, PDFs, or support documents are stored before the reply is sent." accept="image/*,.pdf,.txt" @selected="uploadIssueAttachment" />
+                            <div v-if="issueAttachments.length" class="grid gap-2">
+                                <div v-for="file in issueAttachments" :key="file.id" class="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm">
+                                    <span class="truncate font-medium text-slate-700">{{ file.original_name }}</span>
+                                    <Button variant="ghost" size="sm" @click="removeIssueAttachment(file)">Remove</Button>
+                                </div>
+                            </div>
+                            <Button :disabled="!issueComment.trim() || issueBusy" @click="addIssueComment">
+                                <MessageSquarePlus class="h-4 w-4" />
+                                Add Reply
+                            </Button>
+                        </div>
                     </div>
-                    <Input v-model="form.phone" label="Phone" />
-                    <Button :disabled="!form.description" @click="submitIssue">Submit</Button>
-                </div>
-            </Card>
+
+                    <EmptyState
+                        v-else
+                        title="No issue selected"
+                        description="Select a ticket or claim from the list."
+                        :icon="MessageSquarePlus"
+                    />
+                </Card>
+
+                <Card>
+                    <div class="mb-4 flex items-center gap-2">
+                        <MessageSquarePlus class="h-5 w-5 text-teal-700" />
+                        <h3 class="text-lg font-bold text-slate-950">Open {{ props.mode === 'tickets' ? 'Ticket' : 'Claim' }}</h3>
+                    </div>
+                    <div class="grid gap-4">
+                        <Select v-model="form.order_id" label="Select order">
+                            <option value="">No order selected</option>
+                            <option v-for="order in store.orders" :key="order.id" :value="order.id">{{ order.order_number }} · {{ order.customer_name }}</option>
+                        </Select>
+                        <Select v-model="form.request_type" label="Request type">
+                            <option value="Support">Support</option>
+                            <option value="Credit">Credit</option>
+                        </Select>
+                        <Select v-model="form.reason" label="Reason">
+                            <option>Damaged In Transit</option>
+                            <option>Never Received</option>
+                            <option>Ink Spits</option>
+                            <option>Streaking Or Banding</option>
+                            <option>Other</option>
+                        </Select>
+                        <Textarea v-model="form.description" label="Description" required placeholder="Enter description" :rows="5" />
+                        <div class="grid gap-3 md:grid-cols-2">
+                            <Input v-model="form.name" label="Name" />
+                            <Input v-model="form.email" label="Email" />
+                        </div>
+                        <Input v-model="form.phone" label="Phone" />
+                        <Button :disabled="!form.description" @click="submitIssue">Submit</Button>
+                    </div>
+                </Card>
+            </div>
         </div>
     </div>
 </template>

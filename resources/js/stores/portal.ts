@@ -399,6 +399,43 @@ export const usePortalStore = defineStore('portal', {
             await this.load();
             return issue;
         },
+        replaceIssue(issue: Issue) {
+            const index = this.issues.findIndex((item) => item.id === issue.id);
+            if (index >= 0) {
+                this.issues[index] = issue;
+            } else {
+                this.issues.unshift(issue);
+            }
+        },
+        async fetchIssue(issue: Issue) {
+            const updated = await request<Issue>(`/api/issues/${issue.id}`);
+            this.replaceIssue(updated);
+            return updated;
+        },
+        async updateIssue(issue: Issue, payload: { status?: string; priority?: string; assigned_to_id?: number | null }) {
+            const updated = await request<Issue>(`/api/issues/${issue.id}`, {
+                method: 'PATCH',
+                body: JSON.stringify(payload),
+            });
+            this.replaceIssue(updated);
+            await this.load();
+            return updated;
+        },
+        async addIssueComment(issue: Issue, payload: { body: string; attachments?: unknown[]; internal?: boolean }) {
+            const updated = await request<Issue>(`/api/issues/${issue.id}/comments`, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            this.replaceIssue(updated);
+            await this.load();
+            return updated;
+        },
+        async markIssueRead(issue: Issue) {
+            const updated = await request<Issue>(`/api/issues/${issue.id}/read`, { method: 'POST' });
+            this.replaceIssue(updated);
+            await this.load();
+            return updated;
+        },
         replaceRequiredAction(action: RequiredAction) {
             const index = this.requiredActions.findIndex((item) => item.id === action.id);
             if (index >= 0) {

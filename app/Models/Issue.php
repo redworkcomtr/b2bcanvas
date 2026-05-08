@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['tenant_id', 'order_id', 'type', 'status', 'request_type', 'reasons', 'description', 'contact', 'total_notes_count', 'unread_notes_count', 'last_activity_at'])]
+#[Fillable(['tenant_id', 'order_id', 'assigned_to_id', 'type', 'status', 'priority', 'request_type', 'reasons', 'description', 'contact', 'total_notes_count', 'unread_notes_count', 'last_activity_at', 'last_read_at', 'resolved_at', 'closed_at'])]
 class Issue extends Model
 {
     use BelongsToTenant;
@@ -19,12 +19,20 @@ class Issue extends Model
             'reasons' => 'array',
             'contact' => 'array',
             'last_activity_at' => 'datetime',
+            'last_read_at' => 'datetime',
+            'resolved_at' => 'datetime',
+            'closed_at' => 'datetime',
         ];
     }
 
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
+    }
+
+    public function assignedTo(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_to_id');
     }
 
     public function comments(): HasMany
