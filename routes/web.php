@@ -28,12 +28,15 @@ Route::prefix('api')->group(function () {
         Route::get('/orders/saved-views', [OrderController::class, 'savedViews']);
         Route::post('/orders/saved-views', [OrderController::class, 'storeSavedView']);
         Route::delete('/orders/saved-views/{savedView}', [OrderController::class, 'destroySavedView']);
+        Route::get('/orders/imports', [OrderController::class, 'importHistory']);
+        Route::post('/orders/imports/preview', [OrderController::class, 'importPreview']);
+        Route::post('/orders/imports/{import}/commit', [OrderController::class, 'commitImport']);
+        Route::get('/orders/imports/{import}/errors', [OrderController::class, 'importErrorReport']);
         Route::post('/orders', [OrderController::class, 'store']);
         Route::get('/orders/{uuid}', [OrderController::class, 'show']);
         Route::patch('/orders/{uuid}/address', [OrderController::class, 'updateAddress']);
         Route::patch('/orders/{uuid}/notes', [OrderController::class, 'updateNotes']);
         Route::post('/orders/{uuid}/transition', [OrderController::class, 'transition']);
-        Route::post('/orders/imports/preview', [OrderController::class, 'importPreview']);
         Route::get('/products', [ProductCatalogController::class, 'index']);
         Route::post('/products/types', [ProductCatalogController::class, 'storeType']);
         Route::patch('/products/types/{productType}', [ProductCatalogController::class, 'updateType']);

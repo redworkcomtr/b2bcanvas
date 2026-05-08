@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
+use App\Models\Import;
+use App\Models\ImportRow;
 use App\Models\MediaFile;
 use App\Models\Order;
 use App\Models\OrderStatusEvent;
@@ -353,12 +355,32 @@ class OrderController extends Controller
         ]);
     }
 
+    public function importHistory(Request $request): JsonResponse
+    {
+        Gate::authorize('create', Order::class);
+
+        return response()->json(Import::query()
+            ->forTenant($request->user()->tenant_id)
+            ->withCount('rows')
+            ->latest()
+            ->limit(20)
+            ->get());
+    }
+
     public function importPreview(Request $request, CsvOrderImportParser $parser, MappingRuleMatcher $matcher): JsonResponse
     {
         Gate::authorize('create', Order::class);
 
-        $validated = $request->validate(['csv' => ['required', 'string']]);
-        $parsed = $parser->parse($validated['csv']);
+        $validated = $request->validate([
+            'csv' => ['required_without:file', 'nullable', 'string'],
+            'file' => ['nullable', 'file', 'max:20480', 'mimetypes:text/csv,text/plain'],
+            'filename' => ['nullable', 'string', 'max:180'],
+        ]);
+        $uploadedFile = $request->file('file');
+        $contents = $uploadedFile
+            ? file_get_contents($uploadedFile->getRealPath())
+            : $validated['csv'];
+        $parsed = $parser->parse((string) $contents);
         $tenantId = $request->user()->tenant_id;
         $mappings = ProductMapping::query()
             ->forTenant($tenantId)
@@ -367,6 +389,10 @@ class OrderController extends Controller
 
         $rows = collect($parsed['rows'])->map(function (array $row) use ($matcher, $mappings, $tenantId): array {
             $payload = $row['payload'];
+            $rowErrors = $row['status'] === 'invalid' ? ['Row contains missing or invalid required fields.'] : [];
+            if (($payload['order_number'] ?? null) && Order::query()->forTenant($tenantId)->where('order_number', $payload['order_number'])->exists()) {
+                $rowErrors[] = 'order_number already exists.';
+            }
             $match = $matcher->bestMatch([
                 'sku' => $payload['item_sku'] ?? null,
                 'name' => $payload['item_name'] ?? null,
@@ -374,6 +400,7 @@ class OrderController extends Controller
             ], $mappings);
 
             if (! $match) {
+                $rowErrors[] = 'No product mapping matched this item.';
                 RequiredAction::query()->firstOrCreate([
                     'tenant_id' => $tenantId,
                     'order_id' => null,
@@ -389,11 +416,41 @@ class OrderController extends Controller
             return [
                 ...$row,
                 'matched_mapping' => $match?->load('variant.productType'),
-                'status' => $row['status'] === 'valid' && $match ? 'ready' : 'needs_action',
+                'matched_product_variant_id' => $match?->product_variant_id,
+                'errors' => $rowErrors,
+                'status' => $rowErrors === [] && $match ? 'ready' : 'needs_action',
             ];
         });
 
+        $import = Import::query()->create([
+            'tenant_id' => $tenantId,
+            'filename' => $validated['filename'] ?? ($uploadedFile?->getClientOriginalName() ?? 'pasted-import.csv'),
+            'status' => 'preview',
+            'total_rows' => $rows->count(),
+            'valid_rows' => $rows->where('status', 'ready')->count(),
+            'invalid_rows' => $rows->where('status', 'needs_action')->count(),
+            'summary' => [
+                'headers' => $parsed['headers'],
+                'parser_errors' => $parsed['errors'],
+            ],
+        ]);
+
+        foreach ($rows as $row) {
+            ImportRow::query()->create([
+                'import_id' => $import->id,
+                'row_number' => $row['row_number'],
+                'status' => $row['status'],
+                'payload' => [
+                    ...$row['payload'],
+                    'matched_product_variant_id' => $row['matched_product_variant_id'],
+                    'matched_mapping_id' => $row['matched_mapping']['id'] ?? null,
+                ],
+                'errors' => $row['errors'],
+            ]);
+        }
+
         return response()->json([
+            'import_id' => $import->id,
             'headers' => $parsed['headers'],
             'rows' => $rows,
             'errors' => $parsed['errors'],
@@ -403,6 +460,108 @@ class OrderController extends Controller
                 'needs_action' => $rows->where('status', 'needs_action')->count(),
             ],
         ]);
+    }
+
+    public function commitImport(Request $request, Import $import, ProductPricingService $pricingService): JsonResponse
+    {
+        Gate::authorize('create', Order::class);
+        abort_unless($import->tenant_id === $request->user()->tenant_id, 404);
+
+        $created = 0;
+        $skipped = 0;
+
+        $import->load('rows');
+        foreach ($import->rows->where('status', 'ready') as $row) {
+            $payload = $row->payload;
+            if (Order::query()->forTenant($import->tenant_id)->where('order_number', $payload['order_number'])->exists()) {
+                $row->update(['status' => 'needs_action', 'errors' => [...($row->errors ?? []), 'order_number already exists.']]);
+                $skipped++;
+                continue;
+            }
+
+            $variant = ProductVariant::query()->with('productType')->findOrFail($payload['matched_product_variant_id']);
+            $quantity = (int) ($payload['quantity'] ?? 1);
+            $price = $pricingService->priceItem($variant, $quantity, []);
+
+            $order = Order::query()->create([
+                'uuid' => (string) Str::uuid(),
+                'tenant_id' => $import->tenant_id,
+                'order_number' => $payload['order_number'],
+                'status' => 'verified',
+                'customer_name' => $payload['customer_name'],
+                'shipping_service' => $payload['shipping_service'] ?? 'Standard Ground',
+                'shipping_address' => [
+                    'line1' => $payload['address_line_1'],
+                    'city' => $payload['city'],
+                    'state' => $payload['state'] ?? null,
+                    'postal_code' => $payload['postal_code'],
+                    'country' => $payload['country'],
+                ],
+                'order_date' => now(),
+                'submitted_at' => now(),
+                'totals' => ['subtotal_cents' => $price['subtotal_cents'], 'currency' => 'USD'],
+            ]);
+            $order->items()->create([
+                'product_variant_id' => $variant->id,
+                'item_name' => $payload['item_name'],
+                'item_sku' => $payload['item_sku'] ?? null,
+                'quantity' => $quantity,
+                'product_code' => $variant->sku,
+                'product_type' => $variant->productType?->name,
+                'panel_summary' => implode(', ', $variant->panel_sizes ?? []),
+                'design_images' => [],
+                'options' => ['import_id' => $import->id, 'subtotal_cents' => $price['subtotal_cents']],
+            ]);
+            OrderStatusEvent::query()->create([
+                'tenant_id' => $import->tenant_id,
+                'order_id' => $order->id,
+                'user_id' => $request->user()->id,
+                'from_status' => null,
+                'to_status' => 'verified',
+                'note' => 'Order created from import batch.',
+                'metadata' => ['import_id' => $import->id, 'row_number' => $row->row_number],
+            ]);
+            $this->audit($request, $order, 'order.import_created', ['import_id' => $import->id, 'row_number' => $row->row_number]);
+            $row->update(['status' => 'committed']);
+            $created++;
+        }
+
+        $import->update([
+            'status' => $import->rows()->where('status', 'needs_action')->exists() ? 'partial' : 'committed',
+            'valid_rows' => $import->rows()->whereIn('status', ['ready', 'committed'])->count(),
+            'invalid_rows' => $import->rows()->where('status', 'needs_action')->count(),
+            'summary' => [
+                ...($import->summary ?? []),
+                'created_orders' => $created,
+                'skipped_rows' => $skipped,
+            ],
+        ]);
+
+        return response()->json([
+            'import' => $import->fresh('rows'),
+            'created_orders' => $created,
+            'skipped_rows' => $skipped,
+        ]);
+    }
+
+    public function importErrorReport(Request $request, Import $import): StreamedResponse
+    {
+        Gate::authorize('create', Order::class);
+        abort_unless($import->tenant_id === $request->user()->tenant_id, 404);
+
+        return response()->streamDownload(function () use ($import): void {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, ['row_number', 'order_number', 'status', 'errors']);
+            $import->rows()->where('status', 'needs_action')->orderBy('row_number')->each(function (ImportRow $row) use ($handle): void {
+                fputcsv($handle, [
+                    $row->row_number,
+                    $row->payload['order_number'] ?? '',
+                    $row->status,
+                    implode('; ', $row->errors ?? []),
+                ]);
+            });
+            fclose($handle);
+        }, 'import-errors-'.$import->id.'.csv', ['Content-Type' => 'text/csv']);
     }
 
     /**

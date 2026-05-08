@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 
 import type {
     AuthPayload,
+    ImportBatch,
     ImportPreview,
     Issue,
     MappingRule,
@@ -282,6 +283,16 @@ export const usePortalStore = defineStore('portal', {
                 method: 'POST',
                 body: JSON.stringify({ csv }),
             });
+        },
+        async importHistory() {
+            return request<ImportBatch[]>('/api/orders/imports');
+        },
+        async commitImport(importId: number) {
+            const result = await request<{ import: ImportBatch; created_orders: number; skipped_rows: number }>(`/api/orders/imports/${importId}/commit`, {
+                method: 'POST',
+            });
+            await this.load();
+            return result;
         },
         async createMapping(payload: Record<string, unknown>) {
             const result = await request<MappingMutationResult>('/api/product-mappings', {

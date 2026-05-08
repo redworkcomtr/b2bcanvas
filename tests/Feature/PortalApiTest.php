@@ -92,8 +92,53 @@ class PortalApiTest extends TestCase
         $response = $this->postJson('/api/orders/imports/preview', ['csv' => $csv]);
 
         $response->assertOk()
+            ->assertJsonStructure(['import_id'])
             ->assertJsonPath('summary.total', 1)
             ->assertJsonPath('summary.needs_action', 1);
+    }
+
+    public function test_import_preview_creates_batch_and_commit_creates_ready_orders(): void
+    {
+        $this->seed();
+        $this->actingAs(User::query()->where('email', 'selin@example.test')->firstOrFail());
+
+        $csv = implode("\n", [
+            'order_number,item_name,item_sku,quantity,customer_name,address_line_1,city,state,postal_code,country',
+            'WEB-9001,"Framed Art Print-Black / 36"" x 24""",MGC-FP-36x24_Black,1,Jordan Lee,101 Harbor Road,Seattle,WA,98101,US',
+            'WEB-9002,Unknown marketplace product,CUSTOM-44x30,1,Mina Chen,225 Lake Drive,Denver,CO,80202,US',
+        ]);
+
+        $preview = $this->postJson('/api/orders/imports/preview', ['csv' => $csv]);
+
+        $preview->assertOk()
+            ->assertJsonPath('summary.total', 2)
+            ->assertJsonPath('summary.ready', 1)
+            ->assertJsonPath('summary.needs_action', 1)
+            ->assertJsonPath('rows.0.status', 'ready')
+            ->assertJsonPath('rows.1.status', 'needs_action');
+
+        $importId = $preview->json('import_id');
+
+        $this->assertDatabaseHas('imports', [
+            'id' => $importId,
+            'total_rows' => 2,
+            'valid_rows' => 1,
+            'invalid_rows' => 1,
+        ]);
+        $this->assertDatabaseHas('import_rows', [
+            'import_id' => $importId,
+            'row_number' => 2,
+            'status' => 'ready',
+        ]);
+
+        $this->postJson('/api/orders/imports/'.$importId.'/commit')
+            ->assertOk()
+            ->assertJsonPath('created_orders', 1)
+            ->assertJsonPath('import.status', 'partial');
+
+        $this->assertDatabaseHas('orders', ['order_number' => 'WEB-9001', 'status' => 'verified']);
+        $this->assertDatabaseHas('import_rows', ['import_id' => $importId, 'row_number' => 2, 'status' => 'committed']);
+        $this->assertDatabaseHas('required_actions', ['type' => 'product_mapping_required']);
     }
 
     public function test_order_queries_are_tenant_isolated(): void

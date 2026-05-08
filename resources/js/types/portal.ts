@@ -278,12 +278,14 @@ export type AuthPayload = {
 };
 
 export type ImportPreview = {
+    import_id: number;
     headers: string[];
     rows: Array<{
         row_number: number;
         status: string;
         payload: Record<string, string>;
         matched_mapping: ProductMapping | null;
+        errors?: string[];
     }>;
     errors: Record<string, string[]>;
     summary: {
@@ -291,4 +293,17 @@ export type ImportPreview = {
         ready: number;
         needs_action: number;
     };
+};
+
+export type ImportBatch = {
+    id: number;
+    tenant_id: number;
+    filename: string;
+    status: string;
+    total_rows: number;
+    valid_rows: number;
+    invalid_rows: number;
+    summary: Record<string, unknown> | null;
+    rows_count?: number;
+    created_at: string;
 };
