@@ -5,8 +5,12 @@ import { computed, reactive, ref } from 'vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Card from '@/components/ui/Card.vue';
+import EmptyState from '@/components/ui/EmptyState.vue';
 import Input from '@/components/ui/Input.vue';
 import Select from '@/components/ui/Select.vue';
+import DataTable from '@/components/ui/Table.vue';
+import Tabs from '@/components/ui/Tabs.vue';
+import Textarea from '@/components/ui/Textarea.vue';
 import { dateLabel, statusTone } from '@/lib/utils';
 import { usePortalStore } from '@/stores/portal';
 
@@ -23,6 +27,13 @@ const form = reactive({
     email: store.user?.email ?? '',
     phone: '',
 });
+
+const statusTabs = [
+    { label: 'All', value: 'all' },
+    { label: 'Open', value: 'open' },
+    { label: 'In Progress', value: 'in_progress' },
+    { label: 'Closed', value: 'closed' },
+];
 
 const title = computed(() => ({
     tickets: 'Support Tickets',
@@ -82,18 +93,15 @@ async function submitIssue() {
 
         <div class="grid gap-5" :class="props.mode === 'actions' ? '' : 'xl:grid-cols-[1fr_420px]'">
             <Card>
-                <div class="mb-4 grid gap-3 md:grid-cols-[180px_1fr]">
-                    <Select v-model="status" label="Status">
-                        <option value="all">All</option>
-                        <option value="open">Open</option>
-                        <option value="in_progress">In progress</option>
-                        <option value="closed">Closed</option>
-                    </Select>
+                <div class="mb-4 grid gap-3 md:grid-cols-[auto_1fr] md:items-end">
+                    <div class="grid gap-1.5">
+                        <span class="text-sm font-medium text-slate-700">Status</span>
+                        <Tabs v-model="status" :tabs="statusTabs" />
+                    </div>
                     <Input v-model="orderNumber" label="Order Number" placeholder="Enter order number" />
                 </div>
 
-                <div class="overflow-hidden rounded-md border border-slate-200">
-                    <table class="w-full min-w-[850px] text-left text-sm">
+                <DataTable min-width="900px">
                         <thead class="bg-slate-50 text-xs uppercase text-slate-500">
                             <tr>
                                 <th class="px-4 py-3">Date</th>
@@ -124,8 +132,14 @@ async function submitIssue() {
                                 <td class="px-4 py-3">System</td>
                             </tr>
                         </tbody>
-                    </table>
-                </div>
+                </DataTable>
+                <EmptyState
+                    v-if="(props.mode === 'actions' ? actionRows.length : issueRows.length) === 0"
+                    class="mt-4"
+                    title="No records found"
+                    description="The selected status and order filters returned no operational records."
+                    :icon="MessageSquarePlus"
+                />
             </Card>
 
             <Card v-if="props.mode !== 'actions'">
@@ -149,10 +163,7 @@ async function submitIssue() {
                         <option>Streaking Or Banding</option>
                         <option>Other</option>
                     </Select>
-                    <label class="grid gap-1.5 text-sm font-medium text-slate-700">
-                        <span>Description *</span>
-                        <textarea v-model="form.description" class="focus-ring min-h-32 rounded-md border border-slate-300 p-3 text-sm shadow-sm" placeholder="Enter description" />
-                    </label>
+                    <Textarea v-model="form.description" label="Description" required placeholder="Enter description" :rows="5" />
                     <div class="grid gap-3 md:grid-cols-2">
                         <Input v-model="form.name" label="Name" />
                         <Input v-model="form.email" label="Email" />

@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Card from '@/components/ui/Card.vue';
+import FileDropzone from '@/components/ui/FileDropzone.vue';
 import Input from '@/components/ui/Input.vue';
 import Select from '@/components/ui/Select.vue';
 import { money } from '@/lib/utils';
@@ -140,12 +141,16 @@ async function submit() {
                     <Select v-model="options.hangingOption" label="Hanging Options">
                         <option v-for="option in hangingOptions" :key="option.id" :value="option.name">{{ option.name }} · {{ money(option.price_cents) }}</option>
                     </Select>
-                    <label class="grid gap-2 rounded-lg border border-dashed border-slate-300 p-5 text-sm">
-                        <span class="flex items-center gap-2 font-semibold text-slate-800"><ImageUp class="h-4 w-4" /> Panel image upload gate</span>
-                        <span class="text-slate-500">Select a local artwork file name for this MVP. Storage wiring is ready on the backend plan.</span>
-                        <input type="file" class="text-sm" @change="options.imageName = ($event.target as HTMLInputElement).files?.[0]?.name ?? ''">
+                    <div class="grid gap-2">
+                        <div class="flex items-center gap-2 text-sm font-semibold text-slate-800"><ImageUp class="h-4 w-4" /> Panel image upload gate</div>
+                        <FileDropzone
+                            label="Upload artwork or print-ready panel"
+                            description="This MVP records the selected file name; the media service will persist files in the media module."
+                            accept="image/*,.pdf"
+                            @selected="options.imageName = $event.name"
+                        />
                         <Badge v-if="options.imageName" tone="success">{{ options.imageName }}</Badge>
-                    </label>
+                    </div>
                     <div class="flex justify-between">
                         <Button variant="outline" @click="step = 1">Back</Button>
                         <Button :disabled="!canShip" @click="step = 3">Next</Button>

@@ -16,11 +16,11 @@ const props = withDefaults(defineProps<{
 
 const attrs = useAttrs();
 const buttonVariants = cva(
-    'focus-ring inline-flex items-center justify-center gap-2 rounded-md border text-sm font-semibold transition disabled:pointer-events-none disabled:opacity-50',
+    'focus-ring relative inline-flex shrink-0 items-center justify-center gap-2 rounded-md border text-sm font-semibold transition disabled:pointer-events-none disabled:opacity-50',
     {
         variants: {
             variant: {
-                default: 'border-transparent bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] shadow-sm hover:bg-teal-800',
+                default: 'border-transparent bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] shadow-sm hover:bg-[hsl(var(--primary-dark))]',
                 secondary: 'border-transparent bg-slate-900 text-white hover:bg-slate-800',
                 outline: 'border-[hsl(var(--border))] bg-white text-slate-800 hover:bg-slate-50',
                 ghost: 'border-transparent bg-transparent text-slate-700 hover:bg-slate-100',

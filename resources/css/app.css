@@ -6,19 +6,24 @@
 
 :root {
     color-scheme: light;
-    --background: 210 24% 98%;
-    --foreground: 216 23% 15%;
+    --background: 220 19% 97%;
+    --foreground: 221 39% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 216 23% 15%;
-    --muted: 210 20% 94%;
-    --muted-foreground: 215 11% 42%;
-    --border: 214 16% 86%;
-    --primary: 173 64% 28%;
+    --card-foreground: 221 39% 11%;
+    --muted: 214 26% 94%;
+    --muted-foreground: 215 16% 47%;
+    --border: 214 25% 88%;
+    --primary: 176 77% 26%;
     --primary-foreground: 0 0% 100%;
-    --accent: 18 85% 57%;
+    --primary-dark: 175 84% 20%;
+    --accent: 28 89% 48%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 72% 51%;
-    --ring: 173 64% 28%;
+    --success: 160 84% 32%;
+    --info: 221 83% 53%;
+    --warning: 32 95% 44%;
+    --ring: 176 77% 26%;
+    --radius: 8px;
 }
 
 * {
@@ -34,6 +39,8 @@ html {
 body {
     min-height: 100vh;
     margin: 0;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
 }
 
 button,
@@ -50,6 +57,32 @@ textarea {
 
 .focus-ring:focus-visible {
     outline-color: hsl(var(--ring));
+}
+
+.scrollbar-thin {
+    scrollbar-color: hsl(var(--border)) transparent;
+    scrollbar-width: thin;
+}
+
+.surface-grid {
+    background-image:
+        linear-gradient(to right, rgb(15 23 42 / 0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgb(15 23 42 / 0.04) 1px, transparent 1px);
+    background-size: 32px 32px;
+}
+
+.line-clamp-1 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    overflow: hidden;
+}
+
+.line-clamp-2 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
 }
 
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';

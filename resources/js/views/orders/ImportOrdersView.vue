@@ -5,6 +5,9 @@ import { ref } from 'vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Card from '@/components/ui/Card.vue';
+import FileDropzone from '@/components/ui/FileDropzone.vue';
+import DataTable from '@/components/ui/Table.vue';
+import Textarea from '@/components/ui/Textarea.vue';
 import { usePortalStore } from '@/stores/portal';
 import type { ImportPreview } from '@/types/portal';
 
@@ -34,11 +37,15 @@ async function runPreview() {
                     <FileSpreadsheet class="h-5 w-5 text-teal-700" />
                     <h3 class="text-lg font-bold text-slate-950">CSV Preview</h3>
                 </div>
-                <textarea
+                <Textarea
                     v-model="csv"
-                    class="focus-ring min-h-72 w-full rounded-md border border-slate-300 p-3 font-mono text-sm shadow-sm"
-                    spellcheck="false"
+                    label="CSV contents"
+                    :rows="12"
+                    help="Paste CSV data or use the upload affordance for the production media workflow."
                 />
+                <div class="mt-4">
+                    <FileDropzone label="Upload CSV file" description="File parsing is planned for the import batch service; paste mode is active in this MVP." accept=".csv,.xlsx" @selected="csv = sample" />
+                </div>
                 <div class="mt-4 flex justify-end">
                     <Button @click="runPreview"><Upload class="h-4 w-4" /> Preview Import</Button>
                 </div>
@@ -60,8 +67,7 @@ async function runPreview() {
                 <Badge tone="success">{{ preview.summary.ready }} ready</Badge>
                 <Badge tone="warning">{{ preview.summary.needs_action }} needs action</Badge>
             </div>
-            <div class="overflow-hidden rounded-md border border-slate-200">
-                <table class="w-full text-left text-sm">
+            <DataTable min-width="860px">
                     <thead class="bg-slate-50 text-xs uppercase text-slate-500">
                         <tr><th class="px-4 py-3">Row</th><th class="px-4 py-3">Order</th><th class="px-4 py-3">Item</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">Matched Mapping</th></tr>
                     </thead>
@@ -74,8 +80,7 @@ async function runPreview() {
                             <td class="px-4 py-3">{{ row.matched_mapping?.name ?? 'No match' }}</td>
                         </tr>
                     </tbody>
-                </table>
-            </div>
+            </DataTable>
         </Card>
     </div>
 </template>

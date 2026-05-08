@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { Download, Search } from 'lucide-vue-next';
+import { ClipboardList, Download, Search } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Card from '@/components/ui/Card.vue';
+import EmptyState from '@/components/ui/EmptyState.vue';
 import Input from '@/components/ui/Input.vue';
 import Select from '@/components/ui/Select.vue';
+import DataTable from '@/components/ui/Table.vue';
 import { dateLabel, statusTone } from '@/lib/utils';
 import { usePortalStore } from '@/stores/portal';
 
@@ -26,7 +28,7 @@ const orders = computed(() => store.orders.filter((order) => {
 
 <template>
     <div class="grid gap-5">
-        <div class="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+        <div class="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
             <div>
                 <h2 class="text-2xl font-bold text-slate-950">Orders List</h2>
                 <p class="text-slate-600">Filter, inspect, export, and triage B2B print orders.</p>
@@ -53,8 +55,7 @@ const orders = computed(() => store.orders.filter((order) => {
                 </Button>
             </div>
 
-            <div class="overflow-hidden rounded-md border border-slate-200">
-                <table class="w-full min-w-[980px] text-left text-sm">
+            <DataTable min-width="1040px">
                     <thead class="bg-slate-50 text-xs uppercase text-slate-500">
                         <tr>
                             <th class="px-4 py-3">Order Id</th>
@@ -81,8 +82,15 @@ const orders = computed(() => store.orders.filter((order) => {
                             </td>
                         </tr>
                     </tbody>
-                </table>
-            </div>
+            </DataTable>
+
+            <EmptyState
+                v-if="orders.length === 0"
+                class="mt-4"
+                title="No orders match these filters"
+                description="Adjust search terms or status filters to widen the list."
+                :icon="ClipboardList"
+            />
 
             <div class="mt-4 flex items-center justify-between text-sm text-slate-500">
                 <span>{{ orders.length }} records shown</span>

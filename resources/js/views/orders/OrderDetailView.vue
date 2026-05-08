@@ -6,6 +6,7 @@ import { RouterLink } from 'vue-router';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Card from '@/components/ui/Card.vue';
+import EmptyState from '@/components/ui/EmptyState.vue';
 import { dateLabel, money, statusTone } from '@/lib/utils';
 import { usePortalStore } from '@/stores/portal';
 
@@ -97,9 +98,7 @@ const address = computed(() => order.value?.shipping_address ?? {});
                                 :alt="item.item_name"
                                 class="aspect-[16/9] w-full rounded-md border border-slate-200 object-cover"
                             >
-                            <div v-else class="grid aspect-[16/9] place-items-center rounded-md border border-dashed border-slate-300 text-sm text-slate-500">
-                                No design image
-                            </div>
+                            <EmptyState v-else title="No design image" description="Artwork will appear here once the media upload service is connected." :icon="Image" />
                         </div>
 
                         <div>
@@ -130,12 +129,10 @@ const address = computed(() => order.value?.shipping_address ?? {});
                         <p class="mt-2 text-sm text-slate-700">{{ issue.description }}</p>
                     </div>
                 </div>
-                <p v-else class="text-sm text-slate-500">No issues for this order.</p>
+                <EmptyState v-else title="No issues for this order" description="Tickets and claims linked to this order will appear here." :icon="LifeBuoy" />
             </Card>
         </div>
     </div>
 
-    <Card v-else>
-        <p class="text-sm text-slate-600">Order not found. Return to the orders list and select another order.</p>
-    </Card>
+    <EmptyState v-else title="Order not found" description="Return to the orders list and select another order." />
 </template>

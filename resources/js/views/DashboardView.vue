@@ -7,6 +7,8 @@ import StatCard from '@/components/portal/StatCard.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Card from '@/components/ui/Card.vue';
+import EmptyState from '@/components/ui/EmptyState.vue';
+import DataTable from '@/components/ui/Table.vue';
 import { dateLabel, statusTone } from '@/lib/utils';
 import { usePortalStore } from '@/stores/portal';
 
@@ -58,8 +60,7 @@ const workQueue = computed(() => [
                     </RouterLink>
                 </div>
 
-                <div class="overflow-hidden rounded-md border border-slate-200">
-                    <table class="w-full text-left text-sm">
+                <DataTable min-width="760px">
                         <thead class="bg-slate-50 text-xs uppercase text-slate-500">
                             <tr>
                                 <th class="px-4 py-3">Order</th>
@@ -80,8 +81,7 @@ const workQueue = computed(() => [
                                 <td class="px-4 py-3 text-slate-600">{{ order.items?.length ?? 0 }}</td>
                             </tr>
                         </tbody>
-                    </table>
-                </div>
+                </DataTable>
             </Card>
 
             <Card>
@@ -107,10 +107,7 @@ const workQueue = computed(() => [
                         <p class="mt-1 line-clamp-2 text-sm text-slate-600">{{ item.caption }}</p>
                     </RouterLink>
 
-                    <div v-if="workQueue.length === 0" class="rounded-md border border-dashed border-slate-300 p-5 text-center">
-                        <PackageCheck class="mx-auto h-6 w-6 text-emerald-600" />
-                        <p class="mt-2 text-sm font-semibold text-slate-800">No blockers in the queue</p>
-                    </div>
+                    <EmptyState v-if="workQueue.length === 0" title="No blockers in the queue" description="Orders can continue through fulfillment without operator action." :icon="PackageCheck" />
                 </div>
             </Card>
         </div>

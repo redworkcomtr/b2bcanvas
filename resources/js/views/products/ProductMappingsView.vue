@@ -5,8 +5,10 @@ import { computed, reactive, ref } from 'vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Card from '@/components/ui/Card.vue';
+import EmptyState from '@/components/ui/EmptyState.vue';
 import Input from '@/components/ui/Input.vue';
 import Select from '@/components/ui/Select.vue';
+import DataTable from '@/components/ui/Table.vue';
 import { usePortalStore } from '@/stores/portal';
 
 const store = usePortalStore();
@@ -63,8 +65,7 @@ async function createMapping() {
                     <Button variant="outline" class="self-end"><SlidersHorizontal class="h-4 w-4" /> Rules</Button>
                 </div>
 
-                <div class="overflow-hidden rounded-md border border-slate-200">
-                    <table class="w-full min-w-[900px] text-left text-sm">
+                <DataTable min-width="920px">
                         <thead class="bg-slate-50 text-xs uppercase text-slate-500">
                             <tr>
                                 <th class="px-4 py-3">Product</th>
@@ -92,8 +93,14 @@ async function createMapping() {
                                 </td>
                             </tr>
                         </tbody>
-                    </table>
-                </div>
+                </DataTable>
+                <EmptyState
+                    v-if="mappings.length === 0"
+                    class="mt-4"
+                    title="No product mappings found"
+                    description="Create a mapping or clear the search filter to inspect existing rules."
+                    :icon="SlidersHorizontal"
+                />
             </Card>
 
             <Card>

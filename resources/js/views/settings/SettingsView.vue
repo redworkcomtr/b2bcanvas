@@ -5,6 +5,7 @@ import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Card from '@/components/ui/Card.vue';
 import Input from '@/components/ui/Input.vue';
+import EmptyState from '@/components/ui/EmptyState.vue';
 import { usePortalStore } from '@/stores/portal';
 
 const store = usePortalStore();
@@ -70,6 +71,12 @@ const labels: Record<string, string> = {
                             <Button variant="outline" size="sm" @click="store.updateSubscription(subscription)">Save</Button>
                         </div>
                     </div>
+                    <EmptyState
+                        v-if="store.notificationSubscriptions.length === 0"
+                        title="No notification subscriptions"
+                        description="Notification events will appear after the tenant notification seed or setup flow runs."
+                        :icon="Bell"
+                    />
                 </div>
             </Card>
         </div>

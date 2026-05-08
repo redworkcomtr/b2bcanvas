@@ -39,3 +39,16 @@ export function statusTone(status: string) {
 
     return 'neutral';
 }
+
+export function initials(value?: string | null) {
+    return (value ?? 'BC')
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0]?.toUpperCase())
+        .join('') || 'BC';
+}
+
+export function humanize(value?: string | null) {
+    return (value ?? '-').replace(/_/g, ' ');
+}
