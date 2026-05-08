@@ -5,11 +5,13 @@ namespace Database\Seeders;
 use App\Models\Issue;
 use App\Models\NotificationSubscription;
 use App\Models\Order;
+use App\Models\OrderStatusEvent;
 use App\Models\ProductMapping;
 use App\Models\ProductOption;
 use App\Models\ProductType;
 use App\Models\ProductVariant;
 use App\Models\RequiredAction;
+use App\Models\SavedView;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Models\UserInvite;
@@ -168,6 +170,8 @@ class DatabaseSeeder extends Seeder
                 'submitted_at' => now()->subDays($index + 1)->addHours(2),
                 'shipped_at' => $data[1] === 'shipped' ? now()->subHours(6) : null,
                 'shipping_service' => $data[3],
+                'tracking_number' => $data[1] === 'shipped' ? '1Z999AA10123456784' : null,
+                'tracking_url' => $data[1] === 'shipped' ? 'https://tracking.example.test/1Z999AA10123456784' : null,
                 'customer_name' => $data[2],
                 'shipping_address' => [
                     'line1' => ($index + 310).' Market Street',
@@ -192,6 +196,28 @@ class DatabaseSeeder extends Seeder
             ]);
 
             return $order;
+        });
+
+        SavedView::query()->create([
+            'tenant_id' => $tenant->id,
+            'user_id' => $user->id,
+            'scope' => 'orders',
+            'name' => 'Action queue',
+            'filters' => ['status' => 'action_needed', 'q' => ''],
+            'sort' => ['sort' => 'submitted_at', 'direction' => 'desc'],
+            'is_default' => true,
+        ]);
+
+        $orders->each(function (Order $order) use ($tenant, $user): void {
+            OrderStatusEvent::query()->create([
+                'tenant_id' => $tenant->id,
+                'order_id' => $order->id,
+                'user_id' => $user->id,
+                'from_status' => null,
+                'to_status' => $order->status,
+                'note' => 'Seeded initial lifecycle state.',
+                'metadata' => ['source' => 'seed'],
+            ]);
         });
 
         Issue::query()->create([

@@ -4,16 +4,19 @@ import type {
     AuthPayload,
     ImportPreview,
     Issue,
+    MappingRule,
     MappingMutationResult,
     MediaFile,
     NotificationSubscription,
     Order,
+    OrdersResponse,
     PortalPayload,
     ProductOption,
     ProductMapping,
     MappingSimulation,
     ProductType,
     RequiredAction,
+    SavedView,
     Tenant,
     User,
     UserInvite,
@@ -72,6 +75,10 @@ export const usePortalStore = defineStore('portal', {
         user: null as User | null,
         metrics: {} as Record<string, number>,
         orders: [] as Order[],
+        orderList: [] as Order[],
+        ordersMeta: null as OrdersResponse['meta'] | null,
+        ordersSummary: {} as Record<string, number>,
+        savedViews: [] as SavedView[],
         productTypes: [] as ProductType[],
         productMappings: [] as ProductMapping[],
         issues: [] as Issue[],
@@ -149,6 +156,8 @@ export const usePortalStore = defineStore('portal', {
                 this.abilities = payload.abilities;
                 this.metrics = payload.metrics;
                 this.orders = payload.orders;
+                this.orderList = payload.orders;
+                this.savedViews = payload.savedViews ?? [];
                 this.productTypes = payload.productTypes;
                 this.productMappings = payload.productMappings;
                 this.issues = payload.issues;
@@ -169,6 +178,104 @@ export const usePortalStore = defineStore('portal', {
             this.orders.unshift(order);
             await this.load();
             return order;
+        },
+        async fetchOrders(params: Record<string, string | number | null | undefined> = {}) {
+            const search = new URLSearchParams();
+            Object.entries(params).forEach(([key, value]) => {
+                if (value !== null && value !== undefined && value !== '') {
+                    search.set(key, String(value));
+                }
+            });
+
+            const response = await request<OrdersResponse>(`/api/orders?${search.toString()}`);
+            this.orderList = response.data;
+            this.ordersMeta = response.meta;
+            this.ordersSummary = response.summary;
+            return response;
+        },
+        async fetchOrder(uuid: string) {
+            const order = await request<Order>(`/api/orders/${uuid}`);
+            const index = this.orders.findIndex((item) => item.uuid === uuid);
+            if (index >= 0) {
+                this.orders[index] = order;
+            } else {
+                this.orders.unshift(order);
+            }
+
+            return order;
+        },
+        async updateOrderAddress(order: Order, payload: Record<string, unknown>) {
+            const updated = await request<Order>(`/api/orders/${order.uuid}/address`, {
+                method: 'PATCH',
+                body: JSON.stringify(payload),
+            });
+            this.replaceOrder(updated);
+            return updated;
+        },
+        async updateOrderNotes(order: Order, notes: string | null) {
+            const updated = await request<Order>(`/api/orders/${order.uuid}/notes`, {
+                method: 'PATCH',
+                body: JSON.stringify({ notes }),
+            });
+            this.replaceOrder(updated);
+            return updated;
+        },
+        async transitionOrder(order: Order, payload: Record<string, unknown>) {
+            const result = await request<{ order: Order; allowed_next_statuses: string[] }>(`/api/orders/${order.uuid}/transition`, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            this.replaceOrder(result.order);
+            await this.load();
+            return result;
+        },
+        async exportOrders(params: Record<string, string | number | null | undefined> = {}) {
+            const search = new URLSearchParams();
+            Object.entries(params).forEach(([key, value]) => {
+                if (value !== null && value !== undefined && value !== '') {
+                    search.set(key, String(value));
+                }
+            });
+
+            const response = await fetch(`/api/orders/export?${search.toString()}`, {
+                credentials: 'same-origin',
+                headers: { Accept: 'text/csv', 'X-CSRF-TOKEN': csrfToken() },
+            });
+
+            if (!response.ok) {
+                throw new ApiError(`Export failed with ${response.status}`, response.status);
+            }
+
+            return response.blob();
+        },
+        async saveOrderView(payload: { name: string; filters: Record<string, string>; sort: Record<string, string>; is_default?: boolean }) {
+            const view = await request<SavedView>('/api/orders/saved-views', {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            const index = this.savedViews.findIndex((item) => item.id === view.id);
+            if (index >= 0) {
+                this.savedViews[index] = view;
+            } else {
+                this.savedViews.unshift(view);
+            }
+            return view;
+        },
+        async deleteOrderView(view: SavedView) {
+            await request<{ message: string }>(`/api/orders/saved-views/${view.id}`, { method: 'DELETE' });
+            this.savedViews = this.savedViews.filter((item) => item.id !== view.id);
+        },
+        replaceOrder(order: Order) {
+            const index = this.orders.findIndex((item) => item.id === order.id);
+            if (index >= 0) {
+                this.orders[index] = order;
+            } else {
+                this.orders.unshift(order);
+            }
+            const listIndex = this.orderList.findIndex((item) => item.id === order.id);
+            if (listIndex >= 0) {
+                this.orderList[listIndex] = order;
+            }
         },
         async previewImport(csv: string) {
             return request<ImportPreview>('/api/orders/imports/preview', {

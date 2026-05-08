@@ -24,8 +24,15 @@ Route::prefix('api')->group(function () {
         Route::get('/portal', PortalController::class);
         Route::get('/workspace', PortalController::class);
         Route::get('/orders', [OrderController::class, 'index']);
+        Route::get('/orders/export', [OrderController::class, 'export']);
+        Route::get('/orders/saved-views', [OrderController::class, 'savedViews']);
+        Route::post('/orders/saved-views', [OrderController::class, 'storeSavedView']);
+        Route::delete('/orders/saved-views/{savedView}', [OrderController::class, 'destroySavedView']);
         Route::post('/orders', [OrderController::class, 'store']);
         Route::get('/orders/{uuid}', [OrderController::class, 'show']);
+        Route::patch('/orders/{uuid}/address', [OrderController::class, 'updateAddress']);
+        Route::patch('/orders/{uuid}/notes', [OrderController::class, 'updateNotes']);
+        Route::post('/orders/{uuid}/transition', [OrderController::class, 'transition']);
         Route::post('/orders/imports/preview', [OrderController::class, 'importPreview']);
         Route::get('/products', [ProductCatalogController::class, 'index']);
         Route::post('/products/types', [ProductCatalogController::class, 'storeType']);

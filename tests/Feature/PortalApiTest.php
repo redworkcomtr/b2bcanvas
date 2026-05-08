@@ -121,6 +121,129 @@ class PortalApiTest extends TestCase
         $this->getJson('/api/orders/'.$otherOrder->uuid)->assertNotFound();
     }
 
+    public function test_orders_index_filters_sorts_and_paginates_server_side(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $this->actingAs($owner);
+
+        $this->getJson('/api/orders?status=shipped&sort=order_number&direction=asc&per_page=5')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.order_number', 'AT-10038')
+            ->assertJsonPath('summary.total', 4)
+            ->assertJsonPath('summary.shipped', 1);
+
+        $this->getJson('/api/orders?q=Kaitlyn&sort=customer_name&direction=asc')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.customer_name', 'Kaitlyn Janigian');
+    }
+
+    public function test_orders_export_respects_active_filters(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $this->actingAs($owner);
+
+        $response = $this->get('/api/orders/export?status=shipped');
+
+        $response->assertOk()
+            ->assertHeader('content-type', 'text/csv; charset=UTF-8');
+
+        $csv = $response->streamedContent();
+        $this->assertStringContainsString('AT-10038', $csv);
+        $this->assertStringNotContainsString('AT-10035', $csv);
+    }
+
+    public function test_owner_can_save_views_and_transition_order_lifecycle(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $order = Order::query()->where('order_number', 'AT-10035')->firstOrFail();
+        $this->actingAs($owner);
+
+        $this->postJson('/api/orders/saved-views', [
+            'name' => 'Verified orders',
+            'filters' => ['status' => 'verified'],
+            'sort' => ['sort' => 'submitted_at', 'direction' => 'desc'],
+        ])->assertCreated()
+            ->assertJsonPath('name', 'Verified orders');
+
+        $this->assertDatabaseHas('saved_views', [
+            'tenant_id' => $owner->tenant_id,
+            'user_id' => $owner->id,
+            'scope' => 'orders',
+            'name' => 'Verified orders',
+        ]);
+
+        $this->postJson('/api/orders/'.$order->uuid.'/transition', [
+            'status' => 'submitted',
+            'note' => 'Ready for production handoff.',
+        ])->assertOk()
+            ->assertJsonPath('order.status', 'submitted')
+            ->assertJsonPath('event.from_status', 'verified')
+            ->assertJsonPath('event.to_status', 'submitted');
+
+        $order->refresh();
+        $this->assertSame('submitted', $order->status);
+        $this->assertDatabaseHas('order_status_events', [
+            'order_id' => $order->id,
+            'from_status' => 'verified',
+            'to_status' => 'submitted',
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'auditable_type' => Order::class,
+            'auditable_id' => $order->id,
+            'event' => 'order.status_changed',
+        ]);
+
+        $this->postJson('/api/orders/'.$order->uuid.'/transition', [
+            'status' => 'shipped',
+        ])->assertUnprocessable();
+    }
+
+    public function test_owner_can_update_order_address_and_notes_with_audit(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $order = Order::query()->where('order_number', 'AT-10036')->firstOrFail();
+        $this->actingAs($owner);
+
+        $this->patchJson('/api/orders/'.$order->uuid.'/address', [
+            'customer_name' => 'Kaitlyn J.',
+            'shipping_service' => 'UPS Ground',
+            'tracking_number' => '1ZTEST',
+            'tracking_url' => 'https://tracking.example.test/1ZTEST',
+            'shipping_address' => [
+                'line1' => '500 New Market Street',
+                'line2' => 'Suite 5',
+                'city' => 'Austin',
+                'state' => 'TX',
+                'postal_code' => '78755',
+                'country' => 'US',
+            ],
+        ])->assertOk()
+            ->assertJsonPath('customer_name', 'Kaitlyn J.')
+            ->assertJsonPath('shipping_address.line1', '500 New Market Street');
+
+        $this->patchJson('/api/orders/'.$order->uuid.'/notes', [
+            'notes' => 'Handle with revised packing checklist.',
+        ])->assertOk()
+            ->assertJsonPath('notes', 'Handle with revised packing checklist.');
+
+        $this->assertDatabaseHas('audit_logs', [
+            'auditable_type' => Order::class,
+            'auditable_id' => $order->id,
+            'event' => 'order.address_updated',
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'auditable_type' => Order::class,
+            'auditable_id' => $order->id,
+            'event' => 'order.notes_updated',
+        ]);
+    }
+
     public function test_viewer_cannot_create_orders_or_invite_users(): void
     {
         $this->seed();
@@ -138,6 +261,22 @@ class PortalApiTest extends TestCase
             'name' => 'Blocked Invite',
             'email' => 'blocked@example.test',
             'role' => 'viewer',
+        ])->assertForbidden();
+    }
+
+    public function test_viewer_cannot_mutate_existing_orders(): void
+    {
+        $this->seed();
+        $viewer = User::query()->where('email', 'viewer@example.test')->firstOrFail();
+        $order = Order::query()->where('order_number', 'AT-10035')->firstOrFail();
+        $this->actingAs($viewer);
+
+        $this->patchJson('/api/orders/'.$order->uuid.'/notes', [
+            'notes' => 'Viewer should not write.',
+        ])->assertForbidden();
+
+        $this->postJson('/api/orders/'.$order->uuid.'/transition', [
+            'status' => 'submitted',
         ])->assertForbidden();
     }
 

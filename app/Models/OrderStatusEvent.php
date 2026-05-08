@@ -2,21 +2,24 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['issue_id', 'user_id', 'body', 'attachments'])]
-class IssueComment extends Model
+#[Fillable(['tenant_id', 'order_id', 'user_id', 'from_status', 'to_status', 'note', 'metadata'])]
+class OrderStatusEvent extends Model
 {
+    use BelongsToTenant;
+
     protected function casts(): array
     {
-        return ['attachments' => 'array'];
+        return ['metadata' => 'array'];
     }
 
-    public function issue(): BelongsTo
+    public function order(): BelongsTo
     {
-        return $this->belongsTo(Issue::class);
+        return $this->belongsTo(Order::class);
     }
 
     public function user(): BelongsTo

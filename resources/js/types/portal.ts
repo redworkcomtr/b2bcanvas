@@ -77,6 +77,18 @@ export type MediaFile = {
     metadata: Record<string, string> | null;
 };
 
+export type SavedView = {
+    id: number;
+    tenant_id: number;
+    user_id: number | null;
+    scope: 'orders' | string;
+    name: string;
+    filters: Record<string, string> | null;
+    sort: Record<string, string> | null;
+    is_default: boolean;
+    created_at: string;
+};
+
 export type MappingRule = {
     id?: number;
     field: 'sku' | 'name' | 'fulfillment_sku';
@@ -137,12 +149,22 @@ export type Order = {
     submitted_at: string | null;
     shipped_at: string | null;
     shipping_service: string | null;
+    tracking_number: string | null;
+    tracking_url: string | null;
     customer_name: string;
     shipping_address: Record<string, string> | null;
     totals: { subtotal_cents?: number; currency?: string } | null;
     notes: string | null;
     items: OrderItem[];
     issues?: Issue[];
+    required_actions?: RequiredAction[];
+    requiredActions?: RequiredAction[];
+    status_events?: OrderStatusEvent[];
+    statusEvents?: OrderStatusEvent[];
+    media_files?: MediaFile[];
+    mediaFiles?: MediaFile[];
+    audit_logs?: AuditLog[];
+    auditLogs?: AuditLog[];
 };
 
 export type Issue = {
@@ -159,6 +181,41 @@ export type Issue = {
     unread_notes_count: number;
     last_activity_at: string | null;
     created_at: string;
+    comments?: IssueComment[];
+};
+
+export type IssueComment = {
+    id: number;
+    issue_id: number;
+    user_id: number | null;
+    body: string;
+    attachments: unknown[] | null;
+    created_at: string;
+    user?: User | null;
+};
+
+export type OrderStatusEvent = {
+    id: number;
+    order_id: number;
+    user_id: number | null;
+    from_status: string | null;
+    to_status: string;
+    note: string | null;
+    metadata: Record<string, string | null> | null;
+    created_at: string;
+    user?: User | null;
+};
+
+export type AuditLog = {
+    id: number;
+    tenant_id: number | null;
+    user_id: number | null;
+    event: string;
+    auditable_type: string | null;
+    auditable_id: number | null;
+    metadata: Record<string, unknown> | null;
+    created_at: string;
+    user?: User | null;
 };
 
 export type RequiredAction = {
@@ -187,6 +244,7 @@ export type PortalPayload = {
     abilities: string[];
     metrics: Record<string, number>;
     orders: Order[];
+    savedViews: SavedView[];
     productTypes: ProductType[];
     productMappings: ProductMapping[];
     issues: Issue[];
@@ -194,6 +252,23 @@ export type PortalPayload = {
     notificationSubscriptions: NotificationSubscription[];
     users: User[];
     userInvites: UserInvite[];
+};
+
+export type OrdersResponse = {
+    data: Order[];
+    meta: {
+        current_page: number;
+        from: number | null;
+        last_page: number;
+        per_page: number;
+        to: number | null;
+        total: number;
+    };
+    links: {
+        next: string | null;
+        prev: string | null;
+    };
+    summary: Record<string, number>;
 };
 
 export type AuthPayload = {

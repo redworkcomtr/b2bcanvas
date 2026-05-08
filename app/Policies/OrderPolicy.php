@@ -21,4 +21,9 @@ class OrderPolicy
     {
         return $user->hasPermission('manage_orders');
     }
+
+    public function update(User $user, Order $order): bool
+    {
+        return $user->hasPermission('manage_orders') && $user->tenant_id === $order->tenant_id;
+    }
 }

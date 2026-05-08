@@ -9,6 +9,7 @@ use App\Models\Order;
 use App\Models\ProductMapping;
 use App\Models\ProductType;
 use App\Models\RequiredAction;
+use App\Models\SavedView;
 use App\Models\User;
 use App\Models\UserInvite;
 use Illuminate\Http\JsonResponse;
@@ -36,8 +37,15 @@ class PortalController extends Controller
             ],
             'orders' => Order::query()
                 ->forTenant($tenantId)
-                ->with(['items.variant.productType', 'issues'])
+                ->with(['items.variant.productType', 'issues', 'requiredActions'])
                 ->latest('submitted_at')
+                ->get(),
+            'savedViews' => SavedView::query()
+                ->forTenant($tenantId)
+                ->where('scope', 'orders')
+                ->where(fn ($query) => $query->whereNull('user_id')->orWhere('user_id', $user->id))
+                ->orderByDesc('is_default')
+                ->orderBy('name')
                 ->get(),
             'productTypes' => ProductType::query()
                 ->forTenant($tenantId)
