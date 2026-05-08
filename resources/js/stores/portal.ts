@@ -399,6 +399,53 @@ export const usePortalStore = defineStore('portal', {
             await this.load();
             return issue;
         },
+        replaceRequiredAction(action: RequiredAction) {
+            const index = this.requiredActions.findIndex((item) => item.id === action.id);
+            if (index >= 0) {
+                this.requiredActions[index] = action;
+            } else {
+                this.requiredActions.unshift(action);
+            }
+        },
+        async fetchRequiredActions() {
+            this.requiredActions = await request<RequiredAction[]>('/api/required-actions');
+            return this.requiredActions;
+        },
+        async addRequiredActionComment(action: RequiredAction, payload: { body: string; internal?: boolean }) {
+            const updated = await request<RequiredAction>(`/api/required-actions/${action.id}/comments`, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            this.replaceRequiredAction(updated);
+            return updated;
+        },
+        async resolveRequiredAction(action: RequiredAction, payload: { resolution?: Record<string, unknown>; comment?: string | null }) {
+            const updated = await request<RequiredAction>(`/api/required-actions/${action.id}/resolve`, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            this.replaceRequiredAction(updated);
+            await this.load();
+            return updated;
+        },
+        async reopenRequiredAction(action: RequiredAction, payload: { comment?: string | null } = {}) {
+            const updated = await request<RequiredAction>(`/api/required-actions/${action.id}/reopen`, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            this.replaceRequiredAction(updated);
+            await this.load();
+            return updated;
+        },
+        async escalateRequiredAction(action: RequiredAction, payload: { comment?: string | null; priority?: string } = {}) {
+            const updated = await request<RequiredAction>(`/api/required-actions/${action.id}/escalate`, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            this.replaceRequiredAction(updated);
+            await this.load();
+            return updated;
+        },
         async updateSubscription(subscription: NotificationSubscription) {
             const updated = await request<NotificationSubscription>(`/api/notifications/subscriptions/${subscription.id}`, {
                 method: 'PATCH',

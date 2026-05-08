@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\PortalController;
 use App\Http\Controllers\Api\ProductCatalogController;
 use App\Http\Controllers\Api\ProductMappingController;
+use App\Http\Controllers\Api\RequiredActionController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Middleware\EnsureActiveTenant;
 use Illuminate\Support\Facades\Route;
@@ -54,6 +55,12 @@ Route::prefix('api')->group(function () {
         Route::patch('/product-mappings/{mapping}', [ProductMappingController::class, 'update']);
         Route::delete('/product-mappings/{mapping}', [ProductMappingController::class, 'destroy']);
         Route::post('/uploads', [MediaUploadController::class, 'store']);
+        Route::get('/required-actions', [RequiredActionController::class, 'index']);
+        Route::get('/required-actions/{requiredAction}', [RequiredActionController::class, 'show']);
+        Route::post('/required-actions/{requiredAction}/comments', [RequiredActionController::class, 'comment']);
+        Route::post('/required-actions/{requiredAction}/resolve', [RequiredActionController::class, 'resolve']);
+        Route::post('/required-actions/{requiredAction}/reopen', [RequiredActionController::class, 'reopen']);
+        Route::post('/required-actions/{requiredAction}/escalate', [RequiredActionController::class, 'escalate']);
         Route::post('/issues/{type}', [IssueController::class, 'store']);
         Route::patch('/notifications/subscriptions/{subscription}', [NotificationSubscriptionController::class, 'update']);
 

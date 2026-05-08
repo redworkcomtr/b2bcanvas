@@ -32,12 +32,12 @@ class PortalController extends Controller
                 'actionNeeded' => Order::query()->forTenant($tenantId)->where('status', 'action_needed')->count(),
                 'tickets' => Issue::query()->forTenant($tenantId)->where('type', 'ticket')->count(),
                 'claims' => Issue::query()->forTenant($tenantId)->where('type', 'claim')->count(),
-                'requiredActions' => RequiredAction::query()->forTenant($tenantId)->where('status', 'open')->count(),
+                'requiredActions' => RequiredAction::query()->forTenant($tenantId)->whereIn('status', ['open', 'in_progress', 'escalated'])->count(),
                 'unreadNotes' => Issue::query()->forTenant($tenantId)->sum('unread_notes_count'),
             ],
             'orders' => Order::query()
                 ->forTenant($tenantId)
-                ->with(['items.variant.productType', 'issues', 'requiredActions'])
+                ->with(['items.variant.productType', 'issues', 'requiredActions.comments.user'])
                 ->latest('submitted_at')
                 ->get(),
             'savedViews' => SavedView::query()
@@ -64,7 +64,7 @@ class PortalController extends Controller
                 ->get(),
             'requiredActions' => RequiredAction::query()
                 ->forTenant($tenantId)
-                ->with('order')
+                ->with(['order.items.variant.productType', 'comments.user', 'assignedTo'])
                 ->latest('last_activity_at')
                 ->get(),
             'notificationSubscriptions' => NotificationSubscription::query()

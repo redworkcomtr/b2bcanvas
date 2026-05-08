@@ -25,7 +25,7 @@ export function dateLabel(value?: string | null) {
 }
 
 export function statusTone(status: string) {
-    if (['verified', 'shipped', 'closed', 'ready'].includes(status)) {
+    if (['verified', 'shipped', 'closed', 'ready', 'resolved'].includes(status)) {
         return 'success';
     }
 
@@ -33,7 +33,7 @@ export function statusTone(status: string) {
         return 'warning';
     }
 
-    if (['cancelled', 'rejected'].includes(status)) {
+    if (['cancelled', 'rejected', 'escalated'].includes(status)) {
         return 'danger';
     }
 

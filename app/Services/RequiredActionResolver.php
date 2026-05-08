@@ -2,8 +2,10 @@
 
 namespace App\Services;
 
+use App\Models\Import;
 use App\Models\ProductMapping;
 use App\Models\RequiredAction;
+use Illuminate\Support\Arr;
 
 class RequiredActionResolver
 {
@@ -16,7 +18,7 @@ class RequiredActionResolver
 
         RequiredAction::query()
             ->forTenant($mapping->tenant_id)
-            ->where('status', 'open')
+            ->whereIn('status', ['open', 'in_progress', 'escalated'])
             ->where('type', 'product_mapping_required')
             ->with(['order.items'])
             ->get()
@@ -34,7 +36,12 @@ class RequiredActionResolver
                 $action->update([
                     'status' => 'resolved',
                     'resolved_at' => now(),
+                    'escalated_at' => null,
                     'last_activity_at' => now(),
+                    'resolution_payload' => [
+                        'resolved_by_mapping_id' => $mapping->id,
+                        'product_variant_id' => $mapping->product_variant_id,
+                    ],
                     'payload' => [
                         ...($action->payload ?? []),
                         'resolved_by_mapping_id' => $mapping->id,
@@ -45,6 +52,8 @@ class RequiredActionResolver
                 if ($action->order) {
                     $this->applyMappingToOrderItems($action, $mapping);
                 }
+
+                $this->applyMappingToImportRows($action, $mapping);
 
                 $resolved++;
             });
@@ -75,11 +84,56 @@ class RequiredActionResolver
         }
 
         $hasOpenActions = $action->order->requiredActions()
-            ->where('status', 'open')
+            ->whereIn('status', ['open', 'in_progress', 'escalated'])
             ->exists();
 
         if (! $hasOpenActions && $action->order->status === 'action_needed') {
             $action->order->update(['status' => 'verified']);
         }
+    }
+
+    private function applyMappingToImportRows(RequiredAction $action, ProductMapping $mapping): void
+    {
+        $payload = $action->payload ?? [];
+        $orderNumber = Arr::get($payload, 'order_number');
+        $itemSku = Arr::get($payload, 'item_sku');
+        $itemName = Arr::get($payload, 'item_name');
+
+        Import::query()
+            ->forTenant($action->tenant_id)
+            ->with('rows')
+            ->get()
+            ->each(function (Import $import) use ($orderNumber, $itemSku, $itemName, $mapping): void {
+                foreach ($import->rows as $row) {
+                    if ($row->status !== 'needs_action') {
+                        continue;
+                    }
+
+                    $rowPayload = $row->payload ?? [];
+                    $sameOrder = $orderNumber && Arr::get($rowPayload, 'order_number') === $orderNumber;
+                    $sameSku = $itemSku && Arr::get($rowPayload, 'item_sku') === $itemSku;
+                    $sameName = $itemName && Arr::get($rowPayload, 'item_name') === $itemName;
+
+                    if (! $sameOrder && ! $sameSku && ! $sameName) {
+                        continue;
+                    }
+
+                    $row->update([
+                        'status' => 'ready',
+                        'errors' => [],
+                        'payload' => [
+                            ...$rowPayload,
+                            'matched_product_variant_id' => $mapping->product_variant_id,
+                            'matched_mapping_id' => $mapping->id,
+                            'resolved_by_required_action' => true,
+                        ],
+                    ]);
+                }
+
+                $import->update([
+                    'valid_rows' => $import->rows()->where('status', 'ready')->count(),
+                    'invalid_rows' => $import->rows()->where('status', 'needs_action')->count(),
+                ]);
+            });
     }
 }

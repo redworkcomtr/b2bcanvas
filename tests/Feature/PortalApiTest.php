@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\ImportRow;
 use App\Models\Order;
 use App\Models\ProductMapping;
 use App\Models\ProductVariant;
@@ -95,6 +96,46 @@ class PortalApiTest extends TestCase
             ->assertJsonStructure(['import_id'])
             ->assertJsonPath('summary.total', 1)
             ->assertJsonPath('summary.needs_action', 1);
+    }
+
+    public function test_mapping_creation_revalidates_import_rows_linked_to_required_actions(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $variant = ProductVariant::query()->where('sku', 'AT-CV-36X24')->firstOrFail();
+        $this->actingAs($owner);
+
+        $csv = implode("\n", [
+            'order_number,item_name,item_sku,quantity,customer_name,address_line_1,city,state,postal_code,country',
+            'IMP-RA-1,Unmapped Canvas 88,UNMAPPED-CANVAS-88,1,Ada Lovelace,1 Main St,Austin,TX,78701,US',
+        ]);
+
+        $preview = $this->postJson('/api/orders/imports/preview', ['csv' => $csv]);
+        $preview->assertOk()
+            ->assertJsonPath('summary.needs_action', 1);
+
+        $row = ImportRow::query()->where('status', 'needs_action')->latest()->firstOrFail();
+        $this->assertSame('UNMAPPED-CANVAS-88', $row->payload['item_sku']);
+
+        $this->postJson('/api/product-mappings', [
+            'name' => 'Import revalidation canvas mapping',
+            'product_variant_id' => $variant->id,
+            'properties' => ['Bleed' => 'Mirror'],
+            'rules' => [[
+                'field' => 'sku',
+                'operator' => 'equals',
+                'value' => 'UNMAPPED-CANVAS-88',
+                'priority' => 70,
+            ]],
+        ])->assertCreated()
+            ->assertJsonPath('resolved_actions', 1);
+
+        $row->refresh();
+        $this->assertSame('ready', $row->status);
+        $this->assertSame([], $row->errors);
+        $this->assertSame($variant->id, $row->payload['matched_product_variant_id']);
+        $this->assertSame(1, $row->import()->firstOrFail()->valid_rows);
+        $this->assertSame(0, $row->import()->firstOrFail()->invalid_rows);
     }
 
     public function test_import_preview_creates_batch_and_commit_creates_ready_orders(): void
@@ -649,6 +690,119 @@ class PortalApiTest extends TestCase
         $this->assertSame('verified', $order->status);
         $this->assertSame($variant->id, $order->items->first()->product_variant_id);
         $this->assertSame($variant->sku, $order->items->first()->product_code);
+    }
+
+    public function test_required_action_workflow_comments_escalates_reopens_and_resolves_order(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $variant = ProductVariant::query()->where('sku', 'AT-CV-36X24')->firstOrFail();
+        $action = RequiredAction::query()->where('type', 'product_mapping_required')->firstOrFail();
+        $order = $action->order()->with('items')->firstOrFail();
+
+        $this->actingAs($owner);
+
+        $this->postJson('/api/required-actions/'.$action->id.'/comments', [
+            'body' => 'Checking marketplace source data before assigning a production SKU.',
+        ])->assertOk()
+            ->assertJsonPath('comments.0.body', 'Checking marketplace source data before assigning a production SKU.');
+
+        $this->postJson('/api/required-actions/'.$action->id.'/escalate', [
+            'priority' => 'urgent',
+            'comment' => 'Needs operations owner review.',
+        ])->assertOk()
+            ->assertJsonPath('status', 'escalated')
+            ->assertJsonPath('priority', 'urgent')
+            ->assertJsonPath('assigned_to_id', $owner->id);
+
+        $this->postJson('/api/required-actions/'.$action->id.'/reopen', [
+            'comment' => 'Operations confirmed it can be handled in the mapping queue.',
+        ])->assertOk()
+            ->assertJsonPath('status', 'open');
+
+        $this->postJson('/api/required-actions/'.$action->id.'/resolve', [
+            'resolution' => [
+                'product_variant_id' => $variant->id,
+                'note' => 'Custom canvas marketplace item maps to 36x24 stretched canvas.',
+            ],
+            'comment' => 'Resolved and ready for validation.',
+        ])->assertOk()
+            ->assertJsonPath('status', 'resolved')
+            ->assertJsonPath('resolution_payload.product_variant_id', $variant->id);
+
+        $action->refresh()->load('comments');
+        $order->refresh()->load('items');
+
+        $this->assertSame('resolved', $action->status);
+        $this->assertSame('verified', $order->status);
+        $this->assertSame($variant->id, $order->items->first()->product_variant_id);
+        $this->assertCount(4, $action->comments);
+        $this->assertDatabaseHas('audit_logs', [
+            'event' => 'required_action.resolved',
+            'auditable_type' => RequiredAction::class,
+            'auditable_id' => $action->id,
+        ]);
+    }
+
+    public function test_address_required_action_resolution_updates_order_and_unblocks_it(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $order = Order::query()->where('order_number', 'AT-10035')->firstOrFail();
+        $order->update(['status' => 'action_needed']);
+
+        $action = RequiredAction::query()->create([
+            'tenant_id' => $owner->tenant_id,
+            'order_id' => $order->id,
+            'status' => 'open',
+            'type' => 'address_error',
+            'title' => 'Shipping address needs correction',
+            'description' => 'Postal validation rejected the destination address.',
+            'payload' => ['customer_name' => $order->customer_name],
+            'last_activity_at' => now(),
+        ]);
+
+        $this->actingAs($owner);
+
+        $this->postJson('/api/required-actions/'.$action->id.'/resolve', [
+            'resolution' => [
+                'customer_name' => 'Avery Brooks',
+                'shipping_address' => [
+                    'line1' => '500 Market Street',
+                    'line2' => 'Suite 9',
+                    'city' => 'San Francisco',
+                    'state' => 'CA',
+                    'postal_code' => '94105',
+                    'country' => 'US',
+                ],
+            ],
+            'comment' => 'Address corrected from customer confirmation.',
+        ])->assertOk()
+            ->assertJsonPath('status', 'resolved');
+
+        $order->refresh();
+
+        $this->assertSame('verified', $order->status);
+        $this->assertSame('Avery Brooks', $order->customer_name);
+        $this->assertSame('500 Market Street', $order->shipping_address['line1']);
+        $this->assertDatabaseHas('audit_logs', [
+            'event' => 'required_action.resolved',
+            'auditable_id' => $action->id,
+        ]);
+    }
+
+    public function test_viewer_cannot_manage_required_actions(): void
+    {
+        $this->seed();
+        $viewer = User::query()->where('email', 'viewer@example.test')->firstOrFail();
+        $action = RequiredAction::query()->where('type', 'product_mapping_required')->firstOrFail();
+
+        $this->actingAs($viewer);
+
+        $this->getJson('/api/required-actions')->assertForbidden();
+        $this->postJson('/api/required-actions/'.$action->id.'/resolve', [
+            'resolution' => ['note' => 'viewer attempt'],
+        ])->assertForbidden();
     }
 
     public function test_owner_can_update_and_delete_product_mapping(): void

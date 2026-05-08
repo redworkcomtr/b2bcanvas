@@ -221,13 +221,32 @@ export type AuditLog = {
 export type RequiredAction = {
     id: number;
     order_id: number | null;
+    assigned_to_id: number | null;
     order?: Order | null;
+    assigned_to?: User | null;
+    assignedTo?: User | null;
     status: string;
+    priority: string;
     type: string;
     title: string;
     description: string;
-    payload: Record<string, string> | null;
+    payload: Record<string, unknown> | null;
+    resolution_payload: Record<string, unknown> | null;
     last_activity_at: string | null;
+    resolved_at: string | null;
+    escalated_at: string | null;
+    comments?: RequiredActionComment[];
+};
+
+export type RequiredActionComment = {
+    id: number;
+    required_action_id: number;
+    user_id: number | null;
+    body: string;
+    attachments: unknown[] | null;
+    internal: boolean;
+    created_at: string;
+    user?: User | null;
 };
 
 export type NotificationSubscription = {

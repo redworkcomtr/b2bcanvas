@@ -32,6 +32,7 @@ const router = useRouter();
 const sidebarOpen = ref(true);
 const mobileNavOpen = ref(false);
 const commandOpen = ref(false);
+const activeActionStatuses = ['open', 'in_progress', 'escalated'];
 
 const nav = computed(() => [
     { label: 'Dashboard', to: '/', icon: Home, group: 'Workspace' },
@@ -82,7 +83,7 @@ const commandItems = computed(() => [
 ]);
 
 const notifications = computed(() => [
-    ...store.requiredActions.filter((action) => action.status === 'open').map((action) => ({
+    ...store.requiredActions.filter((action) => activeActionStatuses.includes(action.status)).map((action) => ({
         title: action.title,
         description: action.description,
         to: '/issues/actions',

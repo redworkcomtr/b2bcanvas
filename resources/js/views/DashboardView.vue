@@ -13,10 +13,11 @@ import { dateLabel, statusTone } from '@/lib/utils';
 import { usePortalStore } from '@/stores/portal';
 
 const store = usePortalStore();
+const activeActionStatuses = ['open', 'in_progress', 'escalated'];
 
 const latestOrders = computed(() => store.orders.slice(0, 5));
 const workQueue = computed(() => [
-    ...store.requiredActions.filter((action) => action.status === 'open').slice(0, 3).map((action) => ({
+    ...store.requiredActions.filter((action) => activeActionStatuses.includes(action.status)).slice(0, 3).map((action) => ({
         label: action.title,
         caption: action.description,
         to: '/issues/actions',

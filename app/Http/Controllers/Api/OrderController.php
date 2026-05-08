@@ -20,8 +20,8 @@ use App\Services\ProductPricingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Validation\Rule;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -38,7 +38,7 @@ class OrderController extends Controller
         $direction = $validated['direction'] ?? 'desc';
 
         $orders = $query
-            ->with(['items.variant.productType', 'issues', 'requiredActions'])
+            ->with(['items.variant.productType', 'issues', 'requiredActions.comments.user'])
             ->orderBy($sort, $direction)
             ->orderByDesc('id')
             ->paginate((int) ($validated['per_page'] ?? 25))
@@ -69,7 +69,7 @@ class OrderController extends Controller
             ->with([
                 'items.variant.productType',
                 'issues.comments.user',
-                'requiredActions',
+                'requiredActions.comments.user',
                 'statusEvents.user',
                 'mediaFiles',
                 'auditLogs.user',
@@ -476,6 +476,7 @@ class OrderController extends Controller
             if (Order::query()->forTenant($import->tenant_id)->where('order_number', $payload['order_number'])->exists()) {
                 $row->update(['status' => 'needs_action', 'errors' => [...($row->errors ?? []), 'order_number already exists.']]);
                 $skipped++;
+
                 continue;
             }
 
@@ -565,7 +566,7 @@ class OrderController extends Controller
     }
 
     /**
-     * @param array<int, array<string, mixed>> $items
+     * @param  array<int, array<string, mixed>>  $items
      */
     private function assertItemVariantsBelongToTenant(array $items, int $tenantId): void
     {
@@ -592,7 +593,7 @@ class OrderController extends Controller
     }
 
     /**
-     * @param array<int, array<string, mixed>> $items
+     * @param  array<int, array<string, mixed>>  $items
      */
     private function assertMediaFilesBelongToTenant(array $items, int $tenantId): void
     {
@@ -686,7 +687,7 @@ class OrderController extends Controller
         return $order->fresh([
             'items.variant.productType',
             'issues.comments.user',
-            'requiredActions',
+            'requiredActions.comments.user',
             'statusEvents.user',
             'mediaFiles',
             'auditLogs.user',
@@ -694,7 +695,7 @@ class OrderController extends Controller
     }
 
     /**
-     * @param array<string, mixed> $metadata
+     * @param  array<string, mixed>  $metadata
      */
     private function audit(Request $request, Order $order, string $event, array $metadata = []): void
     {
