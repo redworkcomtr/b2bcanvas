@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
+use App\Models\MediaFile;
 use App\Models\Order;
+use App\Models\OrderStatusEvent;
 use App\Models\ProductMapping;
 use App\Models\ProductVariant;
 use App\Models\RequiredAction;
@@ -12,6 +14,7 @@ use App\Models\SavedView;
 use App\Services\CsvOrderImportParser;
 use App\Services\MappingRuleMatcher;
 use App\Services\OrderStatusService;
+use App\Services\ProductPricingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -161,46 +164,124 @@ class OrderController extends Controller
         return response()->json(['message' => 'Saved view deleted.']);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, ProductPricingService $pricingService): JsonResponse
     {
         Gate::authorize('create', Order::class);
 
         $validated = $request->validate([
-            'order_number' => ['required', 'string', 'max:80'],
+            'order_number' => ['required', 'string', 'max:80', 'unique:orders,order_number'],
+            'status' => ['nullable', Rule::in(['draft', 'verified'])],
             'customer_name' => ['required', 'string', 'max:160'],
             'shipping_service' => ['nullable', 'string', 'max:120'],
+            'notes' => ['nullable', 'string', 'max:5000'],
             'shipping_address' => ['required', 'array'],
+            'shipping_address.line1' => ['required', 'string', 'max:200'],
+            'shipping_address.line2' => ['nullable', 'string', 'max:200'],
+            'shipping_address.city' => ['required', 'string', 'max:120'],
+            'shipping_address.state' => ['nullable', 'string', 'max:80'],
+            'shipping_address.postal_code' => ['required', 'string', 'max:40'],
+            'shipping_address.country' => ['required', 'string', 'max:2'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.product_variant_id' => ['nullable', 'integer'],
+            'items.*.product_variant_id' => ['required', 'integer', 'exists:product_variants,id'],
+            'items.*.item_name' => ['nullable', 'string', 'max:500'],
+            'items.*.item_sku' => ['nullable', 'string', 'max:300'],
+            'items.*.quantity' => ['required', 'integer', 'min:1', 'max:999'],
+            'items.*.artwork_media_file_id' => ['nullable', 'integer', 'exists:media_files,id'],
+            'items.*.design_images' => ['nullable', 'array'],
+            'items.*.design_images.*' => ['string', 'max:1000'],
+            'items.*.options' => ['nullable', 'array'],
         ]);
 
         $tenantId = $request->user()->tenant_id;
         $this->assertItemVariantsBelongToTenant($validated['items'], $tenantId);
+        $this->assertMediaFilesBelongToTenant($validated['items'], $tenantId);
+
+        $variants = ProductVariant::query()
+            ->with('productType')
+            ->whereIn('id', collect($validated['items'])->pluck('product_variant_id'))
+            ->get()
+            ->keyBy('id');
+        $mediaFiles = MediaFile::query()
+            ->forTenant($tenantId)
+            ->whereIn('id', collect($validated['items'])->pluck('artwork_media_file_id')->filter())
+            ->get()
+            ->keyBy('id');
+
+        $pricedItems = collect($validated['items'])->map(function (array $item) use ($variants, $mediaFiles, $pricingService): array {
+            $variant = $variants->get($item['product_variant_id']);
+            $quantity = (int) $item['quantity'];
+            $options = $item['options'] ?? [];
+            $price = $pricingService->priceItem($variant, $quantity, $options);
+            $media = isset($item['artwork_media_file_id']) ? $mediaFiles->get($item['artwork_media_file_id']) : null;
+
+            return [
+                'payload' => $item,
+                'variant' => $variant,
+                'media' => $media,
+                'price' => $price,
+            ];
+        });
+
+        $status = $validated['status'] ?? 'verified';
+        $subtotal = (int) $pricedItems->sum(fn (array $item): int => $item['price']['subtotal_cents']);
 
         $order = Order::query()->create([
-            ...$validated,
             'uuid' => (string) Str::uuid(),
             'tenant_id' => $tenantId,
-            'status' => 'verified',
+            'order_number' => $validated['order_number'],
+            'status' => $status,
+            'customer_name' => $validated['customer_name'],
+            'shipping_service' => $validated['shipping_service'] ?? null,
+            'shipping_address' => $validated['shipping_address'],
+            'notes' => $validated['notes'] ?? null,
             'order_date' => now(),
-            'submitted_at' => now(),
+            'submitted_at' => $status === 'draft' ? null : now(),
+            'totals' => ['subtotal_cents' => $subtotal, 'currency' => 'USD'],
         ]);
 
-        foreach ($validated['items'] as $item) {
+        foreach ($pricedItems as $pricedItem) {
+            $item = $pricedItem['payload'];
+            $variant = $pricedItem['variant'];
+            $media = $pricedItem['media'];
+            $designImages = $item['design_images'] ?? [];
+            if ($media) {
+                $designImages[] = $media->url;
+                $media->update([
+                    'mediable_type' => Order::class,
+                    'mediable_id' => $order->id,
+                ]);
+            }
+
             $order->items()->create([
-                'product_variant_id' => $item['product_variant_id'] ?? null,
-                'item_name' => $item['item_name'] ?? 'Configured print item',
+                'product_variant_id' => $variant->id,
+                'item_name' => $item['item_name'] ?? $variant->name,
                 'item_sku' => $item['item_sku'] ?? null,
-                'quantity' => $item['quantity'] ?? 1,
-                'product_code' => $item['product_code'] ?? null,
-                'product_type' => $item['product_type'] ?? null,
-                'panel_summary' => $item['panel_summary'] ?? null,
-                'design_images' => $item['design_images'] ?? [],
-                'options' => $item['options'] ?? [],
+                'quantity' => (int) $item['quantity'],
+                'product_code' => $variant->sku,
+                'product_type' => $variant->productType?->name,
+                'panel_summary' => implode(', ', $variant->panel_sizes ?? []),
+                'design_images' => $designImages,
+                'options' => [
+                    ...($item['options'] ?? []),
+                    'unit_price_cents' => $pricedItem['price']['unit_price_cents'],
+                    'subtotal_cents' => $pricedItem['price']['subtotal_cents'],
+                    'artwork_media_file_id' => $media?->id,
+                ],
             ]);
         }
 
-        return response()->json($order->load('items.variant.productType'), 201);
+        OrderStatusEvent::query()->create([
+            'tenant_id' => $tenantId,
+            'order_id' => $order->id,
+            'user_id' => $request->user()->id,
+            'from_status' => null,
+            'to_status' => $status,
+            'note' => 'Manual order created from wizard.',
+            'metadata' => ['source' => 'new_order_wizard'],
+        ]);
+        $this->audit($request, $order, 'order.created', ['source' => 'new_order_wizard', 'subtotal_cents' => $subtotal]);
+
+        return response()->json($this->freshOrder($order), 201);
     }
 
     public function updateAddress(Request $request, string $uuid): JsonResponse
@@ -347,6 +428,34 @@ class OrderController extends Controller
         if ($allowedCount !== $variantIds->count()) {
             throw ValidationException::withMessages([
                 'items' => ['One or more product variants do not belong to this tenant.'],
+            ]);
+        }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     */
+    private function assertMediaFilesBelongToTenant(array $items, int $tenantId): void
+    {
+        $mediaIds = collect($items)
+            ->pluck('artwork_media_file_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($mediaIds->isEmpty()) {
+            return;
+        }
+
+        $allowedCount = MediaFile::query()
+            ->forTenant($tenantId)
+            ->whereIn('id', $mediaIds)
+            ->where('collection', 'artwork')
+            ->count();
+
+        if ($allowedCount !== $mediaIds->count()) {
+            throw ValidationException::withMessages([
+                'items' => ['One or more artwork files do not belong to this tenant.'],
             ]);
         }
     }

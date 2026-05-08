@@ -264,6 +264,92 @@ class PortalApiTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_owner_can_create_priced_manual_order_with_artwork(): void
+    {
+        Storage::fake('public');
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $variant = ProductVariant::query()->where('sku', 'AT-CV-36X24')->firstOrFail();
+        $this->actingAs($owner);
+
+        $upload = $this->postJson('/api/uploads', [
+            'collection' => 'artwork',
+            'file' => UploadedFile::fake()->image('panel.png', 1200, 900),
+        ])->assertCreated();
+
+        $response = $this->postJson('/api/orders', [
+            'order_number' => 'WEB-MANUAL-100',
+            'customer_name' => 'Manual Customer',
+            'shipping_service' => 'Standard Ground',
+            'shipping_address' => [
+                'line1' => '10 Wizard Way',
+                'city' => 'Austin',
+                'state' => 'TX',
+                'postal_code' => '78701',
+                'country' => 'US',
+            ],
+            'items' => [[
+                'product_variant_id' => $variant->id,
+                'item_sku' => 'CLIENT-CANVAS-36',
+                'quantity' => 2,
+                'artwork_media_file_id' => $upload->json('id'),
+                'options' => [
+                    'print' => 'Mirror',
+                    'hanging' => 'Security Hanger',
+                ],
+            ]],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('order_number', 'WEB-MANUAL-100')
+            ->assertJsonPath('status', 'verified')
+            ->assertJsonPath('totals.subtotal_cents', 4180)
+            ->assertJsonPath('items.0.product_code', 'AT-CV-36X24')
+            ->assertJsonPath('items.0.options.artwork_media_file_id', $upload->json('id'));
+
+        $this->assertDatabaseHas('media_files', [
+            'id' => $upload->json('id'),
+            'mediable_type' => Order::class,
+        ]);
+        $this->assertDatabaseHas('order_status_events', [
+            'to_status' => 'verified',
+            'note' => 'Manual order created from wizard.',
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'event' => 'order.created',
+            'auditable_type' => Order::class,
+        ]);
+    }
+
+    public function test_owner_can_create_draft_manual_order(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $variant = ProductVariant::query()->where('sku', 'AT-FP-36X24-BLK')->firstOrFail();
+        $this->actingAs($owner);
+
+        $this->postJson('/api/orders', [
+            'order_number' => 'WEB-DRAFT-100',
+            'status' => 'draft',
+            'customer_name' => 'Draft Customer',
+            'shipping_address' => [
+                'line1' => '20 Draft Lane',
+                'city' => 'Austin',
+                'state' => 'TX',
+                'postal_code' => '78702',
+                'country' => 'US',
+            ],
+            'items' => [[
+                'product_variant_id' => $variant->id,
+                'quantity' => 1,
+                'options' => [],
+            ]],
+        ])->assertCreated()
+            ->assertJsonPath('status', 'draft')
+            ->assertJsonPath('submitted_at', null)
+            ->assertJsonPath('totals.subtotal_cents', 2490);
+    }
+
     public function test_viewer_cannot_mutate_existing_orders(): void
     {
         $this->seed();
