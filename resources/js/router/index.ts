@@ -5,6 +5,7 @@ import OrdersListView from '@/views/orders/OrdersListView.vue';
 import NewOrderView from '@/views/orders/NewOrderView.vue';
 import ImportOrdersView from '@/views/orders/ImportOrdersView.vue';
 import OrderDetailView from '@/views/orders/OrderDetailView.vue';
+import ProductCatalogView from '@/views/products/ProductCatalogView.vue';
 import ProductMappingsView from '@/views/products/ProductMappingsView.vue';
 import IssuesView from '@/views/issues/IssuesView.vue';
 import SettingsView from '@/views/settings/SettingsView.vue';
@@ -21,6 +22,7 @@ export default createRouter({
         { path: '/orders/new', name: 'orders.new', component: NewOrderView, meta: { permission: 'manage_orders' } },
         { path: '/orders/import', name: 'orders.import', component: ImportOrdersView, meta: { permission: 'manage_orders' } },
         { path: '/orders/:uuid', name: 'orders.show', component: OrderDetailView, props: true },
+        { path: '/products/catalog', name: 'products.catalog', component: ProductCatalogView, meta: { permission: 'manage_catalog' } },
         { path: '/products/mappings', name: 'products.mappings', component: ProductMappingsView, meta: { permission: 'manage_mappings' } },
         { path: '/issues/tickets', name: 'issues.tickets', component: IssuesView, props: { mode: 'tickets' }, meta: { permission: 'manage_issues' } },
         { path: '/issues/claims', name: 'issues.claims', component: IssuesView, props: { mode: 'claims' }, meta: { permission: 'manage_issues' } },

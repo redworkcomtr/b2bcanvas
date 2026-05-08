@@ -38,6 +38,7 @@ const nav = computed(() => [
     { label: 'Orders List', to: '/orders', icon: ClipboardList, group: 'Orders' },
     { label: 'New Order', to: '/orders/new', icon: PackagePlus, group: 'Orders', permission: 'manage_orders' },
     { label: 'Import Orders', to: '/orders/import', icon: Upload, group: 'Orders', permission: 'manage_orders' },
+    { label: 'Product Catalog', to: '/products/catalog', icon: PackagePlus, group: 'Products', permission: 'manage_catalog' },
     { label: 'Product Mappings', to: '/products/mappings', icon: Map, group: 'Products', permission: 'manage_mappings' },
     { label: 'Tickets', to: '/issues/tickets', icon: LifeBuoy, badge: store.metrics.tickets, group: 'Issues', permission: 'manage_issues' },
     { label: 'Claims', to: '/issues/claims', icon: FileWarning, badge: store.metrics.claims, group: 'Issues', permission: 'manage_issues' },

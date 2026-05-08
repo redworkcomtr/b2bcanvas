@@ -6,6 +6,8 @@ use App\Models\Order;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -176,5 +178,98 @@ class PortalApiTest extends TestCase
         $this->actingAs($owner);
 
         $this->patchJson('/api/users/'.$otherUser->id, ['active' => false])->assertForbidden();
+    }
+
+    public function test_owner_can_manage_product_catalog(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $this->actingAs($owner);
+
+        $typeResponse = $this->postJson('/api/products/types', [
+            'name' => 'Metal Print',
+            'code' => 'METAL_PRINT',
+            'description' => 'Aluminum print product line.',
+            'image_url' => 'https://example.test/metal.jpg',
+        ])->assertCreated()
+            ->assertJsonPath('code', 'METAL_PRINT');
+
+        $typeId = $typeResponse->json('id');
+
+        $variantResponse = $this->postJson('/api/products/types/'.$typeId.'/variants', [
+            'name' => 'Metal 24x16',
+            'sku' => 'AT-MT-24X16',
+            'layout' => 'Horizontal',
+            'panel_count' => 1,
+            'price_cents' => 4200,
+            'image_sizes' => ['24" X 16"'],
+            'panel_sizes' => ['24" X 16"'],
+            'template_url' => '/templates/AT-MT-24X16.pdf',
+        ])->assertCreated()
+            ->assertJsonPath('sku', 'AT-MT-24X16');
+
+        $optionResponse = $this->postJson('/api/products/types/'.$typeId.'/options', [
+            'group' => 'Finish Options',
+            'name' => 'Gloss',
+            'code' => 'gloss',
+            'price_cents' => 300,
+        ])->assertCreated()
+            ->assertJsonPath('code', 'gloss');
+
+        $this->patchJson('/api/products/variants/'.$variantResponse->json('id'), [
+            'name' => 'Metal 24x16 Satin',
+            'sku' => 'AT-MT-24X16',
+            'layout' => 'Horizontal',
+            'panel_count' => 1,
+            'price_cents' => 4400,
+            'image_sizes' => ['24" X 16"'],
+            'panel_sizes' => ['24" X 16"'],
+            'template_url' => '/templates/AT-MT-24X16.pdf',
+        ])->assertOk()
+            ->assertJsonPath('price_cents', 4400);
+
+        $this->patchJson('/api/products/options/'.$optionResponse->json('id'), [
+            'group' => 'Finish Options',
+            'name' => 'Satin',
+            'code' => 'satin',
+            'price_cents' => 250,
+        ])->assertOk()
+            ->assertJsonPath('code', 'satin');
+
+        $this->getJson('/api/products')
+            ->assertOk()
+            ->assertJsonFragment(['code' => 'METAL_PRINT']);
+    }
+
+    public function test_viewer_cannot_manage_product_catalog(): void
+    {
+        $this->seed();
+        $viewer = User::query()->where('email', 'viewer@example.test')->firstOrFail();
+        $this->actingAs($viewer);
+
+        $this->postJson('/api/products/types', [
+            'name' => 'Blocked',
+            'code' => 'BLOCKED',
+        ])->assertForbidden();
+    }
+
+    public function test_catalog_media_upload_stores_metadata_and_file(): void
+    {
+        Storage::fake('public');
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $this->actingAs($owner);
+
+        $response = $this->postJson('/api/uploads', [
+            'collection' => 'product_image',
+            'file' => UploadedFile::fake()->image('catalog.png', 640, 480),
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('collection', 'product_image')
+            ->assertJsonPath('mime_type', 'image/png')
+            ->assertJsonStructure(['checksum', 'path', 'url', 'scan_state']);
+
+        Storage::disk('public')->assertExists($response->json('path'));
     }
 }

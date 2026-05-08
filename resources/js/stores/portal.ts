@@ -4,9 +4,11 @@ import type {
     AuthPayload,
     ImportPreview,
     Issue,
+    MediaFile,
     NotificationSubscription,
     Order,
     PortalPayload,
+    ProductOption,
     ProductMapping,
     ProductType,
     RequiredAction,
@@ -26,11 +28,12 @@ function csrfToken() {
 }
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
+    const isFormData = options.body instanceof FormData;
     const response = await fetch(url, {
         credentials: 'same-origin',
         headers: {
             Accept: 'application/json',
-            'Content-Type': 'application/json',
+            ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
             'X-CSRF-TOKEN': csrfToken(),
             ...(options.headers ?? {}),
         },
@@ -179,6 +182,70 @@ export const usePortalStore = defineStore('portal', {
             this.productMappings.unshift(mapping);
             await this.load();
             return mapping;
+        },
+        async createProductType(payload: Record<string, unknown>) {
+            await request<ProductType>('/api/products/types', {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            await this.load();
+        },
+        async updateProductType(productType: ProductType, payload: Record<string, unknown>) {
+            await request<ProductType>(`/api/products/types/${productType.id}`, {
+                method: 'PATCH',
+                body: JSON.stringify(payload),
+            });
+            await this.load();
+        },
+        async deleteProductType(productType: ProductType) {
+            await request<{ message: string }>(`/api/products/types/${productType.id}`, { method: 'DELETE' });
+            await this.load();
+        },
+        async createProductVariant(productType: ProductType, payload: Record<string, unknown>) {
+            await request<ProductType>(`/api/products/types/${productType.id}/variants`, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            await this.load();
+        },
+        async updateProductVariant(variantId: number, payload: Record<string, unknown>) {
+            await request<ProductType>(`/api/products/variants/${variantId}`, {
+                method: 'PATCH',
+                body: JSON.stringify(payload),
+            });
+            await this.load();
+        },
+        async deleteProductVariant(variantId: number) {
+            await request<{ message: string }>(`/api/products/variants/${variantId}`, { method: 'DELETE' });
+            await this.load();
+        },
+        async createProductOption(productType: ProductType, payload: Record<string, unknown>) {
+            await request<ProductOption>(`/api/products/types/${productType.id}/options`, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            await this.load();
+        },
+        async updateProductOption(optionId: number, payload: Record<string, unknown>) {
+            await request<ProductOption>(`/api/products/options/${optionId}`, {
+                method: 'PATCH',
+                body: JSON.stringify(payload),
+            });
+            await this.load();
+        },
+        async deleteProductOption(optionId: number) {
+            await request<{ message: string }>(`/api/products/options/${optionId}`, { method: 'DELETE' });
+            await this.load();
+        },
+        async uploadFile(file: File, collection: string) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('collection', collection);
+
+            return request<MediaFile>('/api/uploads', {
+                method: 'POST',
+                body: formData,
+            });
         },
         async createIssue(type: 'ticket' | 'claim', payload: Record<string, unknown>) {
             const issue = await request<Issue>(`/api/issues/${type}`, {

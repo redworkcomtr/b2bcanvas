@@ -61,6 +61,22 @@ export type ProductOption = {
     price_cents: number;
 };
 
+export type MediaFile = {
+    id: number;
+    tenant_id: number;
+    user_id: number | null;
+    collection: string;
+    disk: string;
+    path: string;
+    url: string;
+    original_name: string;
+    mime_type: string;
+    size: number;
+    checksum: string;
+    scan_state: string;
+    metadata: Record<string, string> | null;
+};
+
 export type MappingRule = {
     id?: number;
     field: 'sku' | 'name' | 'fulfillment_sku';
