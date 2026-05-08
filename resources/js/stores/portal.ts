@@ -4,12 +4,14 @@ import type {
     AuthPayload,
     ImportPreview,
     Issue,
+    MappingMutationResult,
     MediaFile,
     NotificationSubscription,
     Order,
     PortalPayload,
     ProductOption,
     ProductMapping,
+    MappingSimulation,
     ProductType,
     RequiredAction,
     Tenant,
@@ -175,13 +177,36 @@ export const usePortalStore = defineStore('portal', {
             });
         },
         async createMapping(payload: Record<string, unknown>) {
-            const mapping = await request<ProductMapping>('/api/product-mappings', {
+            const result = await request<MappingMutationResult>('/api/product-mappings', {
                 method: 'POST',
                 body: JSON.stringify(payload),
             });
-            this.productMappings.unshift(mapping);
             await this.load();
-            return mapping;
+            return result;
+        },
+        async updateMapping(mapping: ProductMapping, payload: Record<string, unknown>) {
+            const result = await request<MappingMutationResult>(`/api/product-mappings/${mapping.id}`, {
+                method: 'PATCH',
+                body: JSON.stringify(payload),
+            });
+            await this.load();
+            return result;
+        },
+        async deleteMapping(mapping: ProductMapping) {
+            await request<{ message: string }>(`/api/product-mappings/${mapping.id}`, { method: 'DELETE' });
+            await this.load();
+        },
+        async simulateMapping(payload: Record<string, unknown>) {
+            return request<MappingSimulation>('/api/product-mappings/simulate', {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+        },
+        async detectMappingConflicts(payload: Record<string, unknown>) {
+            return request<{ conflicts: Array<{ id: number; name: string; rules: MappingRule[] }> }>('/api/product-mappings/conflicts', {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
         },
         async createProductType(payload: Record<string, unknown>) {
             await request<ProductType>('/api/products/types', {

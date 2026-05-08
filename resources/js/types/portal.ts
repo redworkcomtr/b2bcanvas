@@ -93,6 +93,26 @@ export type ProductMapping = {
     rules: MappingRule[];
 };
 
+export type MappingMutationResult = {
+    mapping: ProductMapping;
+    resolved_actions: number;
+    conflicts: unknown[];
+};
+
+export type MappingSimulationCandidate = {
+    mapping: ProductMapping;
+    matched: boolean;
+    score: number;
+    max_priority: number;
+    rule_count: number;
+};
+
+export type MappingSimulation = {
+    matched_mapping: ProductMapping | null;
+    candidates: MappingSimulationCandidate[];
+    conflicts: MappingSimulationCandidate[];
+};
+
 export type OrderItem = {
     id: number;
     product_variant_id: number | null;

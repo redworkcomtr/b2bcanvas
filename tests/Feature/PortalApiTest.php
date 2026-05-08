@@ -3,6 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\Order;
+use App\Models\ProductMapping;
+use App\Models\ProductVariant;
+use App\Models\RequiredAction;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -271,5 +274,160 @@ class PortalApiTest extends TestCase
             ->assertJsonStructure(['checksum', 'path', 'url', 'scan_state']);
 
         Storage::disk('public')->assertExists($response->json('path'));
+    }
+
+    public function test_mapping_simulator_returns_ranked_matches_and_conflicts(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $tenant = Tenant::query()->where('slug', 'atelier-canvas')->firstOrFail();
+        $variant = ProductVariant::query()->where('sku', 'AT-FP-24X36-WAL')->firstOrFail();
+
+        $secondary = ProductMapping::query()->create([
+            'tenant_id' => $tenant->id,
+            'product_variant_id' => $variant->id,
+            'name' => 'Broad framed art fallback',
+            'properties' => ['Frame' => 'Walnut'],
+        ]);
+        $secondary->rules()->create([
+            'field' => 'name',
+            'operator' => 'contains',
+            'value' => 'Framed Art Print',
+            'priority' => 10,
+        ]);
+
+        $this->actingAs($owner);
+
+        $response = $this->postJson('/api/product-mappings/simulate', [
+            'item_name' => 'Framed Art Print-Black / 36" x 24" / Football Stadium',
+            'item_sku' => 'MGC-FP-36x24_Black-100',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('matched_mapping.name', 'Black framed football art 36x24')
+            ->assertJsonCount(2, 'candidates')
+            ->assertJsonCount(2, 'conflicts');
+    }
+
+    public function test_mapping_creation_rejects_duplicate_rules_and_invalid_regex(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $variant = ProductVariant::query()->where('sku', 'AT-CV-36X24')->firstOrFail();
+
+        $this->actingAs($owner);
+
+        $this->postJson('/api/product-mappings', [
+            'name' => 'Duplicate framed SKU',
+            'product_variant_id' => $variant->id,
+            'properties' => ['Frame' => 'Black Modern Thin'],
+            'rules' => [[
+                'field' => 'sku',
+                'operator' => 'contains',
+                'value' => 'MGC-FP-36x24_Black',
+                'priority' => 80,
+            ]],
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('rules');
+
+        $this->postJson('/api/product-mappings', [
+            'name' => 'Invalid regex mapping',
+            'product_variant_id' => $variant->id,
+            'rules' => [[
+                'field' => 'name',
+                'operator' => 'regex',
+                'value' => '/Custom Canvas(',
+                'priority' => 20,
+            ]],
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('rules.0.value');
+    }
+
+    public function test_mapping_creation_resolves_required_actions_and_updates_order_items(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $variant = ProductVariant::query()->where('sku', 'AT-CV-36X24')->firstOrFail();
+        $action = RequiredAction::query()->where('type', 'product_mapping_required')->firstOrFail();
+        $order = $action->order()->with('items')->firstOrFail();
+
+        $this->assertSame('action_needed', $order->status);
+        $this->assertNull($order->items->first()->product_variant_id);
+
+        $this->actingAs($owner);
+
+        $response = $this->postJson('/api/product-mappings', [
+            'name' => 'Custom canvas 36x24 marketplace',
+            'product_variant_id' => $variant->id,
+            'properties' => ['Bleed' => 'Mirror'],
+            'rules' => [[
+                'field' => 'name',
+                'operator' => 'contains',
+                'value' => 'Custom Canvas Print',
+                'priority' => 60,
+            ]],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('mapping.name', 'Custom canvas 36x24 marketplace')
+            ->assertJsonPath('resolved_actions', 1);
+
+        $action->refresh();
+        $order->refresh()->load('items');
+
+        $this->assertSame('resolved', $action->status);
+        $this->assertSame('verified', $order->status);
+        $this->assertSame($variant->id, $order->items->first()->product_variant_id);
+        $this->assertSame($variant->sku, $order->items->first()->product_code);
+    }
+
+    public function test_owner_can_update_and_delete_product_mapping(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $mapping = ProductMapping::query()->where('name', 'Black framed football art 36x24')->firstOrFail();
+        $variant = ProductVariant::query()->where('sku', 'AT-CV-24X16')->firstOrFail();
+
+        $this->actingAs($owner);
+
+        $this->patchJson('/api/product-mappings/'.$mapping->id, [
+            'name' => 'Updated compact canvas mapping',
+            'product_variant_id' => $variant->id,
+            'properties' => ['Bleed' => 'Gallery Wrap'],
+            'rules' => [[
+                'field' => 'sku',
+                'operator' => 'starts_with',
+                'value' => 'UNIQUE-CANVAS-24',
+                'priority' => 30,
+            ]],
+        ])->assertOk()
+            ->assertJsonPath('mapping.name', 'Updated compact canvas mapping')
+            ->assertJsonPath('mapping.rules.0.operator', 'starts_with');
+
+        $this->deleteJson('/api/product-mappings/'.$mapping->id)->assertOk();
+
+        $this->assertDatabaseMissing('product_mappings', ['id' => $mapping->id]);
+        $this->assertDatabaseMissing('mapping_rules', ['product_mapping_id' => $mapping->id]);
+    }
+
+    public function test_viewer_cannot_manage_product_mappings(): void
+    {
+        $this->seed();
+        $viewer = User::query()->where('email', 'viewer@example.test')->firstOrFail();
+        $variant = ProductVariant::query()->where('sku', 'AT-CV-36X24')->firstOrFail();
+
+        $this->actingAs($viewer);
+
+        $this->getJson('/api/product-mappings')->assertForbidden();
+        $this->postJson('/api/product-mappings', [
+            'name' => 'Blocked mapping',
+            'product_variant_id' => $variant->id,
+            'rules' => [[
+                'field' => 'name',
+                'operator' => 'contains',
+                'value' => 'Blocked',
+                'priority' => 10,
+            ]],
+        ])->assertForbidden();
     }
 }

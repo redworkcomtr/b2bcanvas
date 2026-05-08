@@ -36,4 +36,28 @@ class MappingRuleMatcherTest extends TestCase
 
         $this->assertFalse((new MappingRuleMatcher())->mappingMatches(['name' => 'Loose Canvas'], $mapping));
     }
+
+    public function test_it_scores_all_matching_rules(): void
+    {
+        $mapping = new ProductMapping(['name' => 'Two rule match']);
+        $mapping->setRelation('rules', new Collection([
+            new MappingRule(['field' => 'sku', 'operator' => 'contains', 'value' => 'CANVAS', 'priority' => 35]),
+            new MappingRule(['field' => 'name', 'operator' => 'starts_with', 'value' => 'Custom', 'priority' => 15]),
+        ]));
+
+        $score = (new MappingRuleMatcher())->score([
+            'sku' => 'CUSTOM-CANVAS-36X24',
+            'name' => 'Custom wall art',
+        ], $mapping);
+
+        $this->assertSame(50, $score);
+    }
+
+    public function test_it_matches_regex_rules_against_original_case(): void
+    {
+        $matcher = new MappingRuleMatcher();
+
+        $this->assertTrue($matcher->ruleMatches(['name' => 'Canvas 36x24'], 'name', 'regex', '/Canvas \\d+x\\d+/'));
+        $this->assertFalse($matcher->ruleMatches(['name' => 'canvas 36x24'], 'name', 'regex', '/Canvas \\d+x\\d+/'));
+    }
 }

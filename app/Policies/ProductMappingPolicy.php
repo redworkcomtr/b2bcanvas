@@ -21,4 +21,9 @@ class ProductMappingPolicy
     {
         return $user->hasPermission('manage_mappings') && $user->tenant_id === $mapping->tenant_id;
     }
+
+    public function delete(User $user, ProductMapping $mapping): bool
+    {
+        return $this->update($user, $mapping);
+    }
 }

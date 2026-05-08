@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, useSlots } from 'vue';
 
 const props = withDefaults(defineProps<{
     tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'info';
     title?: string;
+    description?: string;
 }>(), {
     tone: 'neutral',
 });
+const slots = useSlots();
 
 const classes = computed(() => ({
     neutral: 'border-slate-200 bg-slate-50 text-slate-700',
@@ -20,7 +22,8 @@ const classes = computed(() => ({
 <template>
     <div :class="['rounded-lg border p-4 text-sm', classes]">
         <p v-if="title" class="font-bold">{{ title }}</p>
-        <div :class="title ? 'mt-1' : ''">
+        <p v-if="description" :class="title ? 'mt-1' : ''">{{ description }}</p>
+        <div v-if="slots.default" :class="title || description ? 'mt-1' : ''">
             <slot />
         </div>
     </div>

@@ -37,7 +37,12 @@ Route::prefix('api')->group(function () {
         Route::post('/products/types/{productType}/options', [ProductCatalogController::class, 'storeOption']);
         Route::patch('/products/options/{option}', [ProductCatalogController::class, 'updateOption']);
         Route::delete('/products/options/{option}', [ProductCatalogController::class, 'destroyOption']);
+        Route::get('/product-mappings', [ProductMappingController::class, 'index']);
         Route::post('/product-mappings', [ProductMappingController::class, 'store']);
+        Route::post('/product-mappings/simulate', [ProductMappingController::class, 'simulate']);
+        Route::post('/product-mappings/conflicts', [ProductMappingController::class, 'conflicts']);
+        Route::patch('/product-mappings/{mapping}', [ProductMappingController::class, 'update']);
+        Route::delete('/product-mappings/{mapping}', [ProductMappingController::class, 'destroy']);
         Route::post('/uploads', [MediaUploadController::class, 'store']);
         Route::post('/issues/{type}', [IssueController::class, 'store']);
         Route::patch('/notifications/subscriptions/{subscription}', [NotificationSubscriptionController::class, 'update']);

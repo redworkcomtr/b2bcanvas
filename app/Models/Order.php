@@ -38,4 +38,9 @@ class Order extends Model
     {
         return $this->hasMany(Issue::class);
     }
+
+    public function requiredActions(): HasMany
+    {
+        return $this->hasMany(RequiredAction::class);
+    }
 }
