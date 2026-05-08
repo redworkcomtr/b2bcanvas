@@ -5,46 +5,62 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\ProductMapping;
+use App\Models\ProductVariant;
 use App\Models\RequiredAction;
-use App\Models\Tenant;
 use App\Services\CsvOrderImportParser;
 use App\Services\MappingRuleMatcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        return response()->json(Order::query()->with(['items.variant.productType', 'issues'])->latest('submitted_at')->paginate(25));
+        Gate::authorize('viewAny', Order::class);
+
+        return response()->json(Order::query()
+            ->forTenant($request->user()->tenant_id)
+            ->with(['items.variant.productType', 'issues'])
+            ->latest('submitted_at')
+            ->paginate(25));
     }
 
-    public function show(string $uuid): JsonResponse
+    public function show(Request $request, string $uuid): JsonResponse
     {
         $order = Order::query()
+            ->forTenant($request->user()->tenant_id)
             ->with(['items.variant.productType', 'issues.comments'])
             ->where('uuid', $uuid)
             ->firstOrFail();
+
+        Gate::authorize('view', $order);
 
         return response()->json($order);
     }
 
     public function store(Request $request): JsonResponse
     {
+        Gate::authorize('create', Order::class);
+
         $validated = $request->validate([
             'order_number' => ['required', 'string', 'max:80'],
             'customer_name' => ['required', 'string', 'max:160'],
             'shipping_service' => ['nullable', 'string', 'max:120'],
             'shipping_address' => ['required', 'array'],
             'items' => ['required', 'array', 'min:1'],
+            'items.*.product_variant_id' => ['nullable', 'integer'],
         ]);
 
-        $tenant = Tenant::query()->firstOrFail();
+        $tenantId = $request->user()->tenant_id;
+        $this->assertItemVariantsBelongToTenant($validated['items'], $tenantId);
+
         $order = Order::query()->create([
             ...$validated,
             'uuid' => (string) Str::uuid(),
-            'tenant_id' => $tenant->id,
+            'tenant_id' => $tenantId,
             'status' => 'verified',
             'order_date' => now(),
             'submitted_at' => now(),
@@ -69,11 +85,17 @@ class OrderController extends Controller
 
     public function importPreview(Request $request, CsvOrderImportParser $parser, MappingRuleMatcher $matcher): JsonResponse
     {
+        Gate::authorize('create', Order::class);
+
         $validated = $request->validate(['csv' => ['required', 'string']]);
         $parsed = $parser->parse($validated['csv']);
-        $mappings = ProductMapping::query()->with(['rules', 'variant.productType'])->get();
+        $tenantId = $request->user()->tenant_id;
+        $mappings = ProductMapping::query()
+            ->forTenant($tenantId)
+            ->with(['rules', 'variant.productType'])
+            ->get();
 
-        $rows = collect($parsed['rows'])->map(function (array $row) use ($matcher, $mappings): array {
+        $rows = collect($parsed['rows'])->map(function (array $row) use ($matcher, $mappings, $tenantId): array {
             $payload = $row['payload'];
             $match = $matcher->bestMatch([
                 'sku' => $payload['item_sku'] ?? null,
@@ -83,7 +105,7 @@ class OrderController extends Controller
 
             if (! $match) {
                 RequiredAction::query()->firstOrCreate([
-                    'tenant_id' => Tenant::query()->first()->id,
+                    'tenant_id' => $tenantId,
                     'order_id' => null,
                     'type' => 'product_mapping_required',
                     'title' => 'Product code mapping is required',
@@ -111,5 +133,32 @@ class OrderController extends Controller
                 'needs_action' => $rows->where('status', 'needs_action')->count(),
             ],
         ]);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     */
+    private function assertItemVariantsBelongToTenant(array $items, int $tenantId): void
+    {
+        $variantIds = collect($items)
+            ->pluck('product_variant_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($variantIds->isEmpty()) {
+            return;
+        }
+
+        $allowedCount = ProductVariant::query()
+            ->whereIn('id', $variantIds)
+            ->whereHas('productType', fn ($query) => $query->where('tenant_id', $tenantId))
+            ->count();
+
+        if ($allowedCount !== $variantIds->count()) {
+            throw ValidationException::withMessages([
+                'items' => ['One or more product variants do not belong to this tenant.'],
+            ]);
+        }
     }
 }

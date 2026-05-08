@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,6 +11,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable(['uuid', 'tenant_id', 'order_number', 'status', 'order_date', 'submitted_at', 'shipped_at', 'shipping_service', 'customer_name', 'shipping_address', 'totals', 'notes'])]
 class Order extends Model
 {
+    use BelongsToTenant;
+
     protected function casts(): array
     {
         return [

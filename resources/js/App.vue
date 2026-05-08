@@ -6,6 +6,7 @@ import {
     FileWarning,
     Home,
     LifeBuoy,
+    LogOut,
     Map,
     Menu,
     PackagePlus,
@@ -35,17 +36,18 @@ const commandOpen = ref(false);
 const nav = computed(() => [
     { label: 'Dashboard', to: '/', icon: Home, group: 'Workspace' },
     { label: 'Orders List', to: '/orders', icon: ClipboardList, group: 'Orders' },
-    { label: 'New Order', to: '/orders/new', icon: PackagePlus, group: 'Orders' },
-    { label: 'Import Orders', to: '/orders/import', icon: Upload, group: 'Orders' },
-    { label: 'Product Mappings', to: '/products/mappings', icon: Map, group: 'Products' },
-    { label: 'Tickets', to: '/issues/tickets', icon: LifeBuoy, badge: store.metrics.tickets, group: 'Issues' },
-    { label: 'Claims', to: '/issues/claims', icon: FileWarning, badge: store.metrics.claims, group: 'Issues' },
-    { label: 'Required Actions', to: '/issues/actions', icon: Bell, badge: store.metrics.requiredActions, group: 'Issues' },
+    { label: 'New Order', to: '/orders/new', icon: PackagePlus, group: 'Orders', permission: 'manage_orders' },
+    { label: 'Import Orders', to: '/orders/import', icon: Upload, group: 'Orders', permission: 'manage_orders' },
+    { label: 'Product Mappings', to: '/products/mappings', icon: Map, group: 'Products', permission: 'manage_mappings' },
+    { label: 'Tickets', to: '/issues/tickets', icon: LifeBuoy, badge: store.metrics.tickets, group: 'Issues', permission: 'manage_issues' },
+    { label: 'Claims', to: '/issues/claims', icon: FileWarning, badge: store.metrics.claims, group: 'Issues', permission: 'manage_issues' },
+    { label: 'Required Actions', to: '/issues/actions', icon: Bell, badge: store.metrics.requiredActions, group: 'Issues', permission: 'manage_mappings' },
     { label: 'Settings', to: '/settings', icon: Settings, group: 'Admin' },
 ]);
 
+const availableNav = computed(() => nav.value.filter((item) => !item.permission || store.can(item.permission)));
 const breadcrumbs = computed(() => {
-    const match = nav.value.find((item) => item.to === route.path);
+    const match = availableNav.value.find((item) => item.to === route.path);
     if (match) {
         return ['Portal', match.group, match.label];
     }
@@ -58,7 +60,7 @@ const breadcrumbs = computed(() => {
 });
 
 const commandItems = computed(() => [
-    ...nav.value.map((item) => ({
+    ...availableNav.value.map((item) => ({
         label: item.label,
         caption: item.group,
         to: item.to,
@@ -97,6 +99,11 @@ function go(to: string) {
     router.push(to);
 }
 
+async function logout() {
+    await store.logout();
+    router.push('/login');
+}
+
 function onKeydown(event: KeyboardEvent) {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
@@ -106,7 +113,7 @@ function onKeydown(event: KeyboardEvent) {
 
 onMounted(() => {
     window.addEventListener('keydown', onKeydown);
-    if (!store.loaded) {
+    if (!route.meta.guest && store.authenticated && !store.loaded) {
         store.load();
     }
 });
@@ -115,7 +122,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 </script>
 
 <template>
-    <div class="min-h-screen bg-[hsl(var(--background))]">
+    <RouterView v-if="route.meta.guest" />
+    <div v-else class="min-h-screen bg-[hsl(var(--background))]">
         <aside
             :class="[
                 'fixed inset-y-0 left-0 z-30 hidden border-r border-slate-200 bg-white transition-all lg:block',
@@ -137,7 +145,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                     <p v-if="sidebarOpen" class="mb-1 px-3 text-[11px] font-bold uppercase tracking-wide text-slate-400">{{ group }}</p>
                     <div class="grid gap-1">
                         <RouterLink
-                            v-for="item in nav.filter((entry) => entry.group === group)"
+                            v-for="item in availableNav.filter((entry) => entry.group === group)"
                             :key="item.to"
                             :to="item.to"
                             :title="item.label"
@@ -163,7 +171,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
         <Sheet v-model:open="mobileNavOpen" title="Navigation">
             <nav class="grid gap-1">
                 <RouterLink
-                    v-for="item in nav"
+                    v-for="item in availableNav"
                     :key="item.to"
                     :to="item.to"
                     class="flex h-11 items-center gap-3 rounded-md px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
@@ -243,15 +251,35 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                             </template>
                         </Dropdown>
 
-                        <div class="hidden items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 md:flex">
-                            <div class="grid h-7 w-7 place-items-center rounded bg-slate-950 text-xs font-bold text-white">
-                                {{ initials(store.user?.name) }}
-                            </div>
-                            <div class="min-w-0 pr-1">
-                                <p class="truncate text-xs font-bold text-slate-950">{{ store.user?.name ?? 'User' }}</p>
-                                <p class="truncate text-[11px] text-slate-500">{{ store.user?.role ?? 'loading' }}</p>
-                            </div>
-                        </div>
+                        <Dropdown>
+                            <template #trigger>
+                                <button class="focus-ring hidden items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 md:flex">
+                                    <div class="grid h-7 w-7 place-items-center rounded bg-slate-950 text-xs font-bold text-white">
+                                        {{ initials(store.user?.name) }}
+                                    </div>
+                                    <div class="min-w-0 pr-1 text-left">
+                                        <p class="truncate text-xs font-bold text-slate-950">{{ store.user?.name ?? 'User' }}</p>
+                                        <p class="truncate text-[11px] text-slate-500">{{ store.user?.role ?? 'loading' }}</p>
+                                    </div>
+                                </button>
+                            </template>
+                            <template #default="{ close }">
+                                <div class="w-64 p-2">
+                                    <div class="border-b border-slate-200 px-2 py-2">
+                                        <p class="truncate text-sm font-bold text-slate-950">{{ store.user?.name }}</p>
+                                        <p class="truncate text-xs text-slate-500">{{ store.user?.email }}</p>
+                                        <Badge class="mt-2" tone="info">{{ store.user?.role }}</Badge>
+                                    </div>
+                                    <button
+                                        class="focus-ring mt-2 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50"
+                                        @click="close(); logout()"
+                                    >
+                                        <LogOut class="h-4 w-4" />
+                                        Sign out
+                                    </button>
+                                </div>
+                            </template>
+                        </Dropdown>
                     </div>
                 </div>
             </header>

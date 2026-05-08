@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -9,6 +10,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['tenant_id', 'order_id', 'status', 'type', 'title', 'description', 'payload', 'last_activity_at', 'resolved_at'])]
 class RequiredAction extends Model
 {
+    use BelongsToTenant;
+
     protected function casts(): array
     {
         return [

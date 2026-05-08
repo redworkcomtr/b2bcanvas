@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 
 import type {
+    AuthPayload,
     ImportPreview,
     Issue,
     NotificationSubscription,
@@ -11,7 +12,14 @@ import type {
     RequiredAction,
     Tenant,
     User,
+    UserInvite,
 } from '@/types/portal';
+
+export class ApiError extends Error {
+    constructor(message: string, public status: number, public errors: Record<string, string[]> = {}) {
+        super(message);
+    }
+}
 
 function csrfToken() {
     return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '';
@@ -19,6 +27,7 @@ function csrfToken() {
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     const response = await fetch(url, {
+        credentials: 'same-origin',
         headers: {
             Accept: 'application/json',
             'Content-Type': 'application/json',
@@ -29,16 +38,31 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     });
 
     if (!response.ok) {
-        throw new Error(`Request failed with ${response.status}`);
+        const body = await response.json().catch(() => null) as { message?: string; errors?: Record<string, string[]> } | null;
+        throw new ApiError(body?.message ?? `Request failed with ${response.status}`, response.status, body?.errors ?? {});
+    }
+
+    if (response.status === 204) {
+        return undefined as T;
     }
 
     return response.json() as Promise<T>;
 }
 
+function applyAuthState(state: ReturnType<typeof usePortalStore>, payload: AuthPayload) {
+    state.tenant = payload.tenant;
+    state.user = payload.user;
+    state.abilities = payload.abilities;
+    state.authenticated = Boolean(payload.user);
+}
+
 export const usePortalStore = defineStore('portal', {
     state: () => ({
+        authChecked: false,
+        authenticated: false,
         loaded: false,
         loading: false,
+        abilities: [] as string[],
         tenant: null as Tenant | null,
         user: null as User | null,
         metrics: {} as Record<string, number>,
@@ -48,6 +72,8 @@ export const usePortalStore = defineStore('portal', {
         issues: [] as Issue[],
         requiredActions: [] as RequiredAction[],
         notificationSubscriptions: [] as NotificationSubscription[],
+        users: [] as User[],
+        userInvites: [] as UserInvite[],
     }),
     getters: {
         variants(state) {
@@ -61,22 +87,74 @@ export const usePortalStore = defineStore('portal', {
         openClaims(state) {
             return state.issues.filter((issue) => issue.type === 'claim');
         },
+        can: (state) => (permission: string) => state.abilities.includes(permission),
     },
     actions: {
+        async checkSession() {
+            try {
+                const payload = await request<AuthPayload>('/api/auth/session');
+                applyAuthState(this, payload);
+            } catch (error) {
+                if (error instanceof ApiError && [401, 403].includes(error.status)) {
+                    this.authenticated = false;
+                    this.tenant = null;
+                    this.user = null;
+                    this.abilities = [];
+                } else {
+                    throw error;
+                }
+            } finally {
+                this.authChecked = true;
+            }
+        },
+        async login(payload: { email: string; password: string; remember: boolean }) {
+            const response = await request<AuthPayload>('/api/auth/login', {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            applyAuthState(this, response);
+            this.authChecked = true;
+            await this.load();
+        },
+        async logout() {
+            await request<{ message: string }>('/api/auth/logout', { method: 'POST' });
+            this.$reset();
+            this.authChecked = true;
+        },
+        async forgotPassword(email: string) {
+            return request<{ message: string }>('/api/auth/forgot-password', {
+                method: 'POST',
+                body: JSON.stringify({ email }),
+            });
+        },
         async load() {
+            if (!this.authenticated) {
+                await this.checkSession();
+            }
+
+            if (!this.authenticated) {
+                return;
+            }
+
             this.loading = true;
-            const payload = await request<PortalPayload>('/api/portal');
-            this.tenant = payload.tenant;
-            this.user = payload.user;
-            this.metrics = payload.metrics;
-            this.orders = payload.orders;
-            this.productTypes = payload.productTypes;
-            this.productMappings = payload.productMappings;
-            this.issues = payload.issues;
-            this.requiredActions = payload.requiredActions;
-            this.notificationSubscriptions = payload.notificationSubscriptions;
-            this.loaded = true;
-            this.loading = false;
+            try {
+                const payload = await request<PortalPayload>('/api/workspace');
+                this.tenant = payload.tenant;
+                this.user = payload.user;
+                this.abilities = payload.abilities;
+                this.metrics = payload.metrics;
+                this.orders = payload.orders;
+                this.productTypes = payload.productTypes;
+                this.productMappings = payload.productMappings;
+                this.issues = payload.issues;
+                this.requiredActions = payload.requiredActions;
+                this.notificationSubscriptions = payload.notificationSubscriptions;
+                this.users = payload.users;
+                this.userInvites = payload.userInvites;
+                this.loaded = true;
+            } finally {
+                this.loading = false;
+            }
         },
         async createOrder(payload: Record<string, unknown>) {
             const order = await request<Order>('/api/orders', {
@@ -122,6 +200,26 @@ export const usePortalStore = defineStore('portal', {
             const index = this.notificationSubscriptions.findIndex((item) => item.id === updated.id);
             if (index >= 0) {
                 this.notificationSubscriptions[index] = updated;
+            }
+        },
+        async inviteUser(payload: { name: string; email: string; role: User['role'] }) {
+            await request<{ user: User; invite: UserInvite }>('/api/users/invites', {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            await this.load();
+        },
+        async updateUser(user: User, payload: Partial<Pick<User, 'name' | 'email' | 'role' | 'active'>>) {
+            const updated = await request<User>(`/api/users/${user.id}`, {
+                method: 'PATCH',
+                body: JSON.stringify(payload),
+            });
+            const index = this.users.findIndex((item) => item.id === updated.id);
+            if (index >= 0) {
+                this.users[index] = updated;
+            }
+            if (this.user?.id === updated.id) {
+                this.user = updated;
             }
         },
     },

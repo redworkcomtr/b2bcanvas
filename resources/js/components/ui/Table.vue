@@ -5,7 +5,7 @@ defineProps<{
 </script>
 
 <template>
-    <div class="scrollbar-thin overflow-auto rounded-lg border border-slate-200 bg-white">
+    <div class="scrollbar-thin min-w-0 overflow-auto rounded-lg border border-slate-200 bg-white">
         <table class="w-full text-left text-sm" :style="{ minWidth: minWidth ?? '900px' }">
             <slot />
         </table>

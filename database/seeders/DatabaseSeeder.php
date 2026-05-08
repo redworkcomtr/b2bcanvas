@@ -11,10 +11,11 @@ use App\Models\ProductType;
 use App\Models\ProductVariant;
 use App\Models\RequiredAction;
 use App\Models\Tenant;
+use App\Models\User;
+use App\Models\UserInvite;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
-use App\Models\User;
 
 class DatabaseSeeder extends Seeder
 {
@@ -34,26 +35,61 @@ class DatabaseSeeder extends Seeder
             ],
         );
 
+        $seedSubscriptions = function (User $user) use ($tenant): void {
+            foreach ([
+                'ORDER_SHIPPED',
+                'ORDER_ACTION_NEEDED',
+                'ORDER_ISSUE_COMMENT_ADDED',
+                'ORDER_VALIDATION_FAILED',
+            ] as $index => $event) {
+                NotificationSubscription::query()->create([
+                    'user_id' => $user->id,
+                    'event' => $event,
+                    'email' => $tenant->support_email,
+                    'is_subscribed' => $index !== 3,
+                ]);
+            }
+        };
+
         $user = User::factory()->create([
             'tenant_id' => $tenant->id,
             'name' => 'Selin Morgan',
             'email' => 'selin@example.test',
-            'role' => 'client_admin',
+            'role' => 'owner',
+            'active' => true,
         ]);
 
-        foreach ([
-            'ORDER_SHIPPED',
-            'ORDER_ACTION_NEEDED',
-            'ORDER_ISSUE_COMMENT_ADDED',
-            'ORDER_VALIDATION_FAILED',
-        ] as $index => $event) {
-            NotificationSubscription::query()->create([
-                'user_id' => $user->id,
-                'event' => $event,
-                'email' => $tenant->support_email,
-                'is_subscribed' => $index !== 3,
+        $seedSubscriptions($user);
+
+        collect([
+            ['Ozan Kaya', 'operations@example.test', 'operations', true],
+            ['Mina Support', 'support@example.test', 'support', true],
+            ['Vera Viewer', 'viewer@example.test', 'viewer', true],
+            ['Pending Partner', 'pending@example.test', 'viewer', false],
+        ])->each(function (array $data) use ($tenant, $user, $seedSubscriptions): void {
+            $teamUser = User::factory()->create([
+                'tenant_id' => $tenant->id,
+                'name' => $data[0],
+                'email' => $data[1],
+                'role' => $data[2],
+                'active' => $data[3],
+                'invited_at' => $data[3] ? null : now()->subDay(),
             ]);
-        }
+
+            $seedSubscriptions($teamUser);
+
+            if (! $teamUser->active) {
+                UserInvite::query()->create([
+                    'tenant_id' => $tenant->id,
+                    'invited_by_id' => $user->id,
+                    'email' => $teamUser->email,
+                    'role' => $teamUser->role,
+                    'token' => Str::random(64),
+                    'status' => 'pending',
+                    'expires_at' => now()->addDays(6),
+                ]);
+            }
+        });
 
         $canvas = ProductType::query()->create([
             'tenant_id' => $tenant->id,

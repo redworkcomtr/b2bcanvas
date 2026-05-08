@@ -10,7 +10,22 @@ export type User = {
     tenant_id: number;
     name: string;
     email: string;
-    role: string;
+    role: 'owner' | 'admin' | 'operations' | 'support' | 'viewer';
+    active: boolean;
+    invited_at: string | null;
+    last_login_at: string | null;
+};
+
+export type UserInvite = {
+    id: number;
+    tenant_id: number;
+    invited_by_id: number | null;
+    email: string;
+    role: User['role'];
+    status: string;
+    expires_at: string | null;
+    accepted_at: string | null;
+    created_at: string;
 };
 
 export type ProductType = {
@@ -133,6 +148,7 @@ export type NotificationSubscription = {
 export type PortalPayload = {
     tenant: Tenant | null;
     user: User | null;
+    abilities: string[];
     metrics: Record<string, number>;
     orders: Order[];
     productTypes: ProductType[];
@@ -140,6 +156,14 @@ export type PortalPayload = {
     issues: Issue[];
     requiredActions: RequiredAction[];
     notificationSubscriptions: NotificationSubscription[];
+    users: User[];
+    userInvites: UserInvite[];
+};
+
+export type AuthPayload = {
+    tenant: Tenant | null;
+    user: User | null;
+    abilities: string[];
 };
 
 export type ImportPreview = {
