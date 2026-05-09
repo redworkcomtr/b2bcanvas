@@ -16,7 +16,7 @@ class MediaUploadController extends Controller
 
         $validated = $request->validate([
             'file' => ['required', 'file', 'max:20480', 'mimetypes:image/jpeg,image/png,image/webp,application/pdf,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
-            'collection' => ['required', 'string', 'in:product_image,template,artwork,issue_attachment,csv_import'],
+            'collection' => ['required', 'string', 'in:product_image,template,artwork,issue_attachment,csv_import,claim_evidence'],
         ]);
 
         $file = $validated['file'];

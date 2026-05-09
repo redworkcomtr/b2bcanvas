@@ -15,7 +15,7 @@ class CsvOrderImportParserTest extends TestCase
             'A-101,,SKU-2,0,Grace Hopper,2 Main St,Austin,TX,78701,US',
         ]);
 
-        $result = (new CsvOrderImportParser())->parse($csv);
+        $result = (new CsvOrderImportParser)->parse($csv);
 
         $this->assertCount(2, $result['rows']);
         $this->assertSame('valid', $result['rows'][0]['status']);

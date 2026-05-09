@@ -22,7 +22,7 @@ class MappingRuleMatcherTest extends TestCase
             new MappingRule(['field' => 'sku', 'operator' => 'contains', 'value' => 'CANVAS', 'priority' => 90]),
         ]));
 
-        $match = (new MappingRuleMatcher())->bestMatch(['sku' => 'CUSTOM-CANVAS-36X24'], new Collection([$low, $high]));
+        $match = (new MappingRuleMatcher)->bestMatch(['sku' => 'CUSTOM-CANVAS-36X24'], new Collection([$low, $high]));
 
         $this->assertSame('High match', $match?->name);
     }
@@ -34,7 +34,7 @@ class MappingRuleMatcherTest extends TestCase
             new MappingRule(['field' => 'name', 'operator' => 'contains', 'value' => 'Framed Art Print', 'priority' => 10]),
         ]));
 
-        $this->assertFalse((new MappingRuleMatcher())->mappingMatches(['name' => 'Loose Canvas'], $mapping));
+        $this->assertFalse((new MappingRuleMatcher)->mappingMatches(['name' => 'Loose Canvas'], $mapping));
     }
 
     public function test_it_scores_all_matching_rules(): void
@@ -45,7 +45,7 @@ class MappingRuleMatcherTest extends TestCase
             new MappingRule(['field' => 'name', 'operator' => 'starts_with', 'value' => 'Custom', 'priority' => 15]),
         ]));
 
-        $score = (new MappingRuleMatcher())->score([
+        $score = (new MappingRuleMatcher)->score([
             'sku' => 'CUSTOM-CANVAS-36X24',
             'name' => 'Custom wall art',
         ], $mapping);
@@ -55,7 +55,7 @@ class MappingRuleMatcherTest extends TestCase
 
     public function test_it_matches_regex_rules_against_original_case(): void
     {
-        $matcher = new MappingRuleMatcher();
+        $matcher = new MappingRuleMatcher;
 
         $this->assertTrue($matcher->ruleMatches(['name' => 'Canvas 36x24'], 'name', 'regex', '/Canvas \\d+x\\d+/'));
         $this->assertFalse($matcher->ruleMatches(['name' => 'canvas 36x24'], 'name', 'regex', '/Canvas \\d+x\\d+/'));

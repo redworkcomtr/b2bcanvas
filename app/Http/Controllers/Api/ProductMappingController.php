@@ -173,7 +173,7 @@ class ProductMappingController extends Controller
     }
 
     /**
-     * @param array<int, array<string, mixed>> $rules
+     * @param  array<int, array<string, mixed>>  $rules
      */
     private function assertRulesAreValid(array $rules): void
     {
@@ -191,7 +191,7 @@ class ProductMappingController extends Controller
     }
 
     /**
-     * @param array<int, array<string, mixed>> $rules
+     * @param  array<int, array<string, mixed>>  $rules
      */
     private function assertNoDuplicateRules(ProductMappingEngine $engine, int $tenantId, array $rules, ?int $excludeMappingId = null): void
     {

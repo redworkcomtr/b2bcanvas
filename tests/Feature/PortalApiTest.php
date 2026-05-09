@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Models\ImportRow;
 use App\Models\Issue;
 use App\Models\MediaFile;
+use App\Models\NotificationMailLog;
+use App\Models\NotificationSubscription;
 use App\Models\Order;
 use App\Models\ProductMapping;
 use App\Models\ProductVariant;
@@ -13,6 +15,8 @@ use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -80,6 +84,38 @@ class PortalApiTest extends TestCase
                 'users',
                 'userInvites',
             ]);
+    }
+
+    public function test_portal_payload_includes_reporting_metrics(): void
+    {
+        $this->seed();
+        $this->actingAs(User::query()->where('email', 'selin@example.test')->firstOrFail());
+
+        $response = $this->getJson('/api/portal');
+
+        $response->assertOk();
+
+        $response->assertJsonStructure([
+            'metrics' => [
+                'orders_total',
+                'orders_open_action_needed',
+                'orders_draft',
+                'orders_action_needed',
+                'orders_in_production',
+                'orders_shipped',
+                'imports_total_rows',
+                'imports_action_ratio',
+                'imports_preview',
+                'imports_committed',
+                'import_rows_ready',
+                'import_rows_needs_action',
+            ],
+        ]);
+
+        $metrics = $response->json('metrics');
+        $this->assertIsInt($metrics['imports_total_rows']);
+        $this->assertIsInt($metrics['imports_action_ratio']);
+        $this->assertIsInt($metrics['orders_open_action_needed']);
     }
 
     public function test_ticket_workflow_updates_status_comments_attachments_and_read_state(): void
@@ -177,6 +213,205 @@ class PortalApiTest extends TestCase
         $this->getJson('/api/issues/'.$ticket->id)->assertForbidden();
         $this->patchJson('/api/issues/'.$ticket->id, ['status' => 'closed'])->assertForbidden();
         $this->postJson('/api/issues/'.$ticket->id.'/comments', ['body' => 'viewer attempt'])->assertForbidden();
+    }
+
+    public function test_claim_resolution_records_evidence_and_finance_outcome(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $claim = Issue::query()->where('type', 'claim')->firstOrFail();
+        $media = MediaFile::query()->create([
+            'tenant_id' => $owner->tenant_id,
+            'user_id' => $owner->id,
+            'collection' => 'claim_evidence',
+            'disk' => 'local',
+            'path' => 'claim-evidence/return-label.pdf',
+            'original_name' => 'return-label.pdf',
+            'mime_type' => 'application/pdf',
+            'size' => 1536,
+            'checksum' => hash('sha256', 'claim-evidence'),
+            'scan_state' => 'clean',
+            'metadata' => [],
+        ]);
+        $this->actingAs($owner);
+
+        $response = $this->postJson('/api/claims/'.$claim->id.'/resolution', [
+            'decision' => 'refund',
+            'amount_cents' => 2500,
+            'currency' => 'USD',
+            'finance_reference' => 'FIN-2026-1',
+            'production_outcome' => 'Reprint with updated ink profile.',
+            'notes' => 'Customer accepted refund and requested reprint cancellation.',
+            'evidence_files' => [['id' => $media->id]],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('status', 'resolved')
+            ->assertJsonPath('claim_resolution.decision', 'refund')
+            ->assertJsonPath('claim_resolution.finance_reference', 'FIN-2026-1')
+            ->assertJsonPath('claim_resolution.amount_cents', 2500);
+
+        $claim->refresh();
+        $claim->load('claimResolution');
+        $this->assertSame('resolved', $claim->status);
+        $this->assertSame('refund', $claim->claimResolution->decision);
+        $this->assertSame(2500, $claim->claimResolution->amount_cents);
+        $this->assertSame('FIN-2026-1', $claim->claimResolution->finance_reference);
+        $this->assertDatabaseHas('claim_resolutions', [
+            'issue_id' => $claim->id,
+            'decision' => 'refund',
+            'amount_cents' => 2500,
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'event' => 'claim.decided',
+            'auditable_type' => Issue::class,
+            'auditable_id' => $claim->id,
+        ]);
+        $this->assertDatabaseHas('issue_comments', [
+            'issue_id' => $claim->id,
+        ]);
+        $this->assertSame($media->id, $claim->claimResolution->evidence_files[0]['id']);
+    }
+
+    public function test_non_claim_items_cannot_be_resolved_as_claim_decisions(): void
+    {
+        $this->seed();
+        $ticket = Issue::query()->where('type', 'ticket')->firstOrFail();
+        $this->actingAs(User::query()->where('email', 'selin@example.test')->firstOrFail());
+
+        $this->postJson('/api/claims/'.$ticket->id.'/resolution', [
+            'decision' => 'reject',
+        ])->assertNotFound();
+    }
+
+    public function test_manage_users_can_preview_and_retry_notification_log(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        Queue::fake();
+
+        $log = NotificationMailLog::query()->create([
+            'tenant_id' => $owner->tenant_id,
+            'subscription_id' => null,
+            'event' => 'ORDER_ACTION_NEEDED',
+            'recipient_email' => 'ops@ateliercanvas.test',
+            'subject' => 'Import check required',
+            'body_html' => '<h1>Import check</h1><p>Action needed.</p>',
+            'body_text' => 'Import check\nAction needed.',
+            'status' => 'failed',
+            'attempts' => 3,
+            'max_attempts' => 3,
+            'message_id' => null,
+            'error_message' => 'SMTP timeout.',
+            'metadata' => null,
+            'sent_at' => null,
+        ]);
+
+        $this->actingAs($owner);
+
+        $this->getJson('/api/notifications/logs')
+            ->assertOk()
+            ->assertJsonFragment(['id' => $log->id]);
+
+        $this->getJson('/api/notifications/logs/'.$log->id)
+            ->assertOk()
+            ->assertJsonPath('status', 'failed')
+            ->assertJsonPath('attempts', 3);
+
+        $this->postJson('/api/notifications/logs/'.$log->id.'/retry', [
+            'recipient_email' => 'delivery@ateliercanvas.test',
+        ])->assertOk()
+            ->assertJsonPath('status', 'queued')
+            ->assertJsonPath('recipient_email', 'delivery@ateliercanvas.test')
+            ->assertJsonPath('attempts', 0);
+
+        $this->assertDatabaseHas('notification_mail_logs', [
+            'id' => $log->id,
+            'recipient_email' => 'delivery@ateliercanvas.test',
+            'status' => 'queued',
+            'attempts' => 0,
+            'error_message' => null,
+        ]);
+    }
+
+    public function test_notification_log_endpoints_are_restricted_to_manage_users(): void
+    {
+        $this->seed();
+        $viewer = User::query()->where('email', 'viewer@example.test')->firstOrFail();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+
+        $log = NotificationMailLog::query()->create([
+            'tenant_id' => $owner->tenant_id,
+            'subscription_id' => null,
+            'event' => 'ORDER_SHIPPED',
+            'recipient_email' => 'shipping@ateliercanvas.test',
+            'subject' => 'Order shipped',
+            'body_html' => '<h1>Shipped</h1>',
+            'body_text' => 'Order shipped',
+            'status' => 'sent',
+            'attempts' => 1,
+            'max_attempts' => 3,
+            'message_id' => null,
+            'error_message' => null,
+            'metadata' => null,
+            'sent_at' => now(),
+        ]);
+
+        $this->actingAs($viewer);
+
+        $this->getJson('/api/notifications/logs')->assertForbidden();
+        $this->getJson('/api/notifications/logs/'.$log->id)->assertForbidden();
+        $this->postJson('/api/notifications/logs/'.$log->id.'/retry')->assertForbidden();
+    }
+
+    public function test_duplicate_import_rows_create_required_action_and_notification_log(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        Queue::fake();
+        NotificationSubscription::query()
+            ->where('user_id', $owner->id)
+            ->where('event', 'ORDER_VALIDATION_FAILED')
+            ->update(['is_subscribed' => true]);
+
+        $this->actingAs($owner);
+        $duplicateOrder = Order::query()->where('tenant_id', $owner->tenant_id)->firstOrFail();
+
+        $preview = $this->postJson('/api/orders/imports/preview', [
+            'csv' => implode("\n", [
+                'order_number,item_name,item_sku,quantity,customer_name,address_line_1,city,state,postal_code,country',
+                $duplicateOrder->order_number.',"Framed Art Print-Black / 36"" x 24""",MGC-FP-36x24_Black,1,Ada Lovelace,1 Main St,Austin,TX,78701,US',
+            ]),
+        ]);
+
+        $preview->assertOk()
+            ->assertJsonPath('summary.ready', 0)
+            ->assertJsonPath('summary.needs_action', 1)
+            ->assertJsonPath('summary.total', 1);
+
+        $importId = $preview->json('import_id');
+        $commit = $this->postJson('/api/orders/imports/'.$importId.'/commit');
+        $commit->assertOk()
+            ->assertJsonPath('created_orders', 0)
+            ->assertJsonPath('import.status', 'partial');
+
+        $row = ImportRow::query()->where('import_id', $importId)->firstOrFail();
+        $this->assertSame('needs_action', $row->status);
+        $this->assertStringContainsString('order_number already exists.', implode(' | ', $row->errors ?? []));
+
+        $action = RequiredAction::query()
+            ->where('tenant_id', $owner->tenant_id)
+            ->where('type', 'duplicate_order')
+            ->where('status', 'open')
+            ->latest()
+            ->first();
+
+        $this->assertNotNull($action);
+        $this->assertSame($duplicateOrder->order_number, $action->payload['order_number']);
+        $this->assertDatabaseHas('notification_mail_logs', [
+            'tenant_id' => $owner->tenant_id,
+            'event' => 'ORDER_VALIDATION_FAILED',
+        ]);
     }
 
     public function test_import_preview_routes_unmapped_rows_to_actions(): void
@@ -503,6 +738,136 @@ class PortalApiTest extends TestCase
         $this->assertDatabaseHas('audit_logs', [
             'event' => 'order.created',
             'auditable_type' => Order::class,
+        ]);
+    }
+
+    public function test_verified_order_can_create_stripe_payment_intent_and_confirm(): void
+    {
+        config([
+            'services.stripe.secret_key' => 'sk_test_123',
+            'services.stripe.webhook_secret' => 'whsec_test',
+        ]);
+
+        Http::fake([
+            'https://api.stripe.com/v1/payment_intents' => Http::response([
+                'id' => 'pi_test_01J123456789',
+                'status' => 'requires_payment_method',
+                'client_secret' => 'pi_test_01J123456789_secret',
+            ], 200),
+            'https://api.stripe.com/v1/payment_intents/pi_test_01J123456789' => Http::response([
+                'id' => 'pi_test_01J123456789',
+                'status' => 'succeeded',
+            ], 200),
+        ]);
+
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $variant = ProductVariant::query()->where('sku', 'AT-CV-36X24')->firstOrFail();
+        $this->actingAs($owner);
+
+        $order = $this->postJson('/api/orders', [
+            'order_number' => 'WEB-PAY-101',
+            'customer_name' => 'Payment Customer',
+            'shipping_service' => 'Standard Ground',
+            'shipping_address' => [
+                'line1' => '10 New Lane',
+                'city' => 'Austin',
+                'state' => 'TX',
+                'postal_code' => '78701',
+                'country' => 'US',
+            ],
+            'items' => [[
+                'product_variant_id' => $variant->id,
+                'quantity' => 1,
+                'options' => [],
+            ]],
+        ])->assertCreated()
+            ->json();
+
+        $this->postJson('/api/orders/'.$order['uuid'].'/payment/intent', [])
+            ->assertCreated()
+            ->assertJsonPath('order.payment_status', 'unpaid')
+            ->assertJsonPath('payment.provider_payment_intent_id', 'pi_test_01J123456789');
+
+        $this->postJson('/api/orders/'.$order['uuid'].'/payment/confirm', [
+            'payment_intent_id' => 'pi_test_01J123456789',
+        ])->assertOk()
+            ->assertJsonPath('result.payment_status', 'paid')
+            ->assertJsonPath('result.order_status', 'submitted')
+            ->assertJsonPath('result.payment_intent_status', 'succeeded');
+
+        $this->assertDatabaseHas('orders', [
+            'uuid' => $order['uuid'],
+            'status' => 'submitted',
+            'payment_status' => 'paid',
+        ]);
+    }
+
+    public function test_webhook_marks_order_paid_and_emits_event(): void
+    {
+        config([
+            'services.stripe.secret_key' => 'sk_test_456',
+            'services.stripe.webhook_secret' => 'whsec_test',
+        ]);
+
+        Http::fake([
+            'https://api.stripe.com/v1/payment_intents' => Http::response([
+                'id' => 'pi_webhook_01J987654321',
+                'status' => 'requires_payment_method',
+                'client_secret' => 'pi_webhook_01J987654321_secret',
+            ], 200),
+        ]);
+
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $variant = ProductVariant::query()->where('sku', 'AT-CV-36X24')->firstOrFail();
+        $this->actingAs($owner);
+
+        $order = $this->postJson('/api/orders', [
+            'order_number' => 'WEB-PAY-102',
+            'customer_name' => 'Webhook Customer',
+            'shipping_service' => 'Standard Ground',
+            'shipping_address' => [
+                'line1' => '20 New Lane',
+                'city' => 'Austin',
+                'state' => 'TX',
+                'postal_code' => '78701',
+                'country' => 'US',
+            ],
+            'items' => [[
+                'product_variant_id' => $variant->id,
+                'quantity' => 2,
+                'options' => [],
+            ]],
+        ])->assertCreated()
+            ->json();
+
+        $intent = $this->postJson('/api/orders/'.$order['uuid'].'/payment/intent', [])->json('payment');
+
+        $eventPayload = [
+            'id' => 'evt_01',
+            'type' => 'payment_intent.succeeded',
+            'data' => [
+                'object' => [
+                    'id' => $intent['provider_payment_intent_id'],
+                    'status' => 'succeeded',
+                ],
+            ],
+        ];
+        $rawPayload = json_encode($eventPayload);
+        $secret = config('services.stripe.webhook_secret');
+        $timestamp = (string) now()->timestamp;
+        $signature = hash_hmac('sha256', $timestamp.'.'.$rawPayload, (string) $secret);
+
+        $response = $this->withoutMiddleware()
+            ->postJson('/api/payments/stripe/webhook', $eventPayload, ['stripe-signature' => "t=$timestamp,v1=$signature"]);
+
+        $response->assertOk()->assertJsonPath('status', 'ok');
+
+        $this->assertDatabaseHas('orders', [
+            'uuid' => $order['uuid'],
+            'status' => 'submitted',
+            'payment_status' => 'paid',
         ]);
     }
 

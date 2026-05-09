@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\NotificationRequested;
 use App\Models\AuditLog;
 use App\Models\Issue;
 use App\Models\User;
@@ -31,6 +32,10 @@ class IssueWorkflowService
             'unread_notes_count' => $issue->unread_notes_count + $unreadIncrement,
             'last_activity_at' => now(),
         ]);
+
+        if (! $internal && $issue->order_id) {
+            $this->notifyIssueComment($issue->fresh('order'), $user, $comment->body, $comment->id);
+        }
 
         $this->audit($issue, $user, 'issue.comment_added', [
             'comment_id' => $comment->id,
@@ -115,6 +120,29 @@ class IssueWorkflowService
 
     private function freshIssue(Issue $issue): Issue
     {
-        return $issue->fresh(['order', 'comments.user', 'assignedTo']);
+        return $issue->fresh(['order', 'comments.user', 'assignedTo', 'claimResolution', 'claimResolution.user']);
+    }
+
+    private function notifyIssueComment(Issue $issue, User $user, string $body, int $commentId): void
+    {
+        $order = $issue->order;
+        if (! $order) {
+            return;
+        }
+
+        NotificationRequested::dispatch(
+            'ORDER_ISSUE_COMMENT_ADDED',
+            $issue->tenant_id,
+            [
+                'order_number' => $order->order_number,
+                'order_id' => $order->id,
+                'issue_id' => $issue->id,
+                'comment_id' => $commentId,
+                'issue_type' => $issue->type,
+                'comment' => $body,
+                'commenter' => $user->name,
+            ],
+            $user,
+        );
     }
 }

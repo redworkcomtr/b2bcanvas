@@ -81,6 +81,8 @@ return new class extends Migration
             $table->foreignId('tenant_id')->constrained()->cascadeOnDelete();
             $table->string('order_number')->unique();
             $table->string('status')->default('draft');
+            $table->string('payment_status')->default('not_required');
+            $table->timestamp('paid_at')->nullable();
             $table->timestamp('order_date')->nullable();
             $table->timestamp('submitted_at')->nullable();
             $table->timestamp('shipped_at')->nullable();
@@ -201,6 +203,7 @@ return new class extends Migration
         Schema::dropIfExists('import_rows');
         Schema::dropIfExists('imports');
         Schema::dropIfExists('order_items');
+        Schema::dropIfExists('payments');
         Schema::dropIfExists('orders');
         Schema::dropIfExists('mapping_rules');
         Schema::dropIfExists('product_mappings');

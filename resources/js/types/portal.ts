@@ -140,6 +140,22 @@ export type OrderItem = {
     variant?: ProductVariant | null;
 };
 
+export type Payment = {
+    id: number;
+    tenant_id: number;
+    order_id: number;
+    user_id: number | null;
+    provider: string;
+    provider_payment_intent_id: string;
+    amount_cents: number;
+    currency: string;
+    status: string;
+    metadata: Record<string, unknown> | null;
+    last_error: string | null;
+    created_at: string;
+    updated_at: string;
+};
+
 export type Order = {
     id: number;
     uuid: string;
@@ -153,6 +169,8 @@ export type Order = {
     tracking_url: string | null;
     customer_name: string;
     shipping_address: Record<string, string> | null;
+    payment_status?: string;
+    paid_at?: string | null;
     totals: { subtotal_cents?: number; currency?: string } | null;
     notes: string | null;
     items: OrderItem[];
@@ -163,6 +181,9 @@ export type Order = {
     statusEvents?: OrderStatusEvent[];
     media_files?: MediaFile[];
     mediaFiles?: MediaFile[];
+    payments?: Payment[];
+    latest_payment?: Payment | null;
+    latestPayment?: Payment | null;
     audit_logs?: AuditLog[];
     auditLogs?: AuditLog[];
 };
@@ -189,6 +210,23 @@ export type Issue = {
     closed_at: string | null;
     created_at: string;
     comments?: IssueComment[];
+    claim_resolution?: ClaimResolution | null;
+};
+
+export type ClaimResolution = {
+    id: number;
+    issue_id: number;
+    user_id: number | null;
+    decision: string;
+    amount_cents: number | null;
+    currency: string;
+    finance_reference: string | null;
+    production_outcome: string | null;
+    notes: string | null;
+    evidence_files: unknown[] | null;
+    created_at: string;
+    updated_at: string;
+    user?: User | null;
 };
 
 export type IssueComment = {
@@ -263,6 +301,26 @@ export type NotificationSubscription = {
     event: string;
     email: string;
     is_subscribed: boolean;
+};
+
+export type NotificationLog = {
+    id: number;
+    tenant_id: number;
+    subscription_id: number | null;
+    event: string;
+    recipient_email: string;
+    subject: string;
+    body_html: string;
+    body_text: string | null;
+    status: string;
+    attempts: number;
+    max_attempts: number;
+    message_id: string | null;
+    error_message: string | null;
+    metadata: Record<string, unknown> | null;
+    sent_at: string | null;
+    created_at: string;
+    updated_at: string;
 };
 
 export type PortalPayload = {

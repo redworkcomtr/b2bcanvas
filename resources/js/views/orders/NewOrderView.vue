@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Check, ImageUp, Layers3, PackagePlus, Plus, Save, Trash2, Truck } from 'lucide-vue-next';
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { CreditCard, Check, ImageUp, Layers3, PackagePlus, Plus, Save, Trash2, Truck } from 'lucide-vue-next';
+import { loadStripe, type Stripe, type StripeCardElement, type StripeElements } from '@stripe/stripe-js';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 import Alert from '@/components/ui/Alert.vue';
@@ -14,7 +15,7 @@ import Select from '@/components/ui/Select.vue';
 import Textarea from '@/components/ui/Textarea.vue';
 import { money } from '@/lib/utils';
 import { ApiError, usePortalStore } from '@/stores/portal';
-import type { MediaFile, ProductOption, ProductVariant } from '@/types/portal';
+import type { MediaFile, Order, ProductOption, ProductVariant } from '@/types/portal';
 
 type WizardItem = {
     id: string;
@@ -31,6 +32,7 @@ type WizardItem = {
 const draftKey = 'b2bcanvas:new-order-wizard';
 const store = usePortalStore();
 const router = useRouter();
+
 const step = ref(1);
 const activeIndex = ref(0);
 const uploading = ref(false);
@@ -50,14 +52,28 @@ const shipping = reactive({
 });
 const notes = ref('');
 
-const steps = ['Products', 'Configure', 'Artwork', 'Shipping', 'Summary'];
+const paymentOrder = ref<Order | null>(null);
+const paymentIntentId = ref('');
+const paymentClientSecret = ref('');
+const paymentSubmitting = ref(false);
+const paymentMessage = ref('');
+const paymentError = ref('');
+const stripeClient = ref<Stripe | null>(null);
+const stripeElements = ref<StripeElements | null>(null);
+const cardElement = ref<StripeCardElement | null>(null);
+const stripeCardMount = ref<HTMLElement | null>(null);
+
+const baseSteps = ['Products', 'Configure', 'Artwork', 'Shipping', 'Summary'];
+const subtotalCents = computed(() => items.value.reduce((total, item) => total + itemSubtotal(item), 0));
+const requiresPayment = computed(() => subtotalCents.value > 0);
+const steps = computed(() => requiresPayment.value ? [...baseSteps, 'Payment'] : baseSteps);
 const activeItem = computed(() => items.value[activeIndex.value] ?? items.value[0]);
 const activeVariant = computed(() => variantFor(activeItem.value));
 const allConfigured = computed(() => items.value.every((item) => item.product_variant_id && item.quantity > 0));
 const allOptionsReady = computed(() => items.value.every((item) => item.print_option));
 const allArtworkReady = computed(() => items.value.every((item) => item.artwork));
 const shippingReady = computed(() => shipping.customer_name && shipping.line1 && shipping.city && shipping.postal_code && shipping.country);
-const subtotalCents = computed(() => items.value.reduce((total, item) => total + itemSubtotal(item), 0));
+const isPaymentStep = computed(() => requiresPayment.value && step.value === steps.value.length);
 
 function blankItem(): WizardItem {
     return {
@@ -71,6 +87,10 @@ function blankItem(): WizardItem {
         extras: '',
         artwork: null,
     };
+}
+
+function stripePublishableKey(): string {
+    return document.querySelector<HTMLMetaElement>('meta[name="stripe-publishable-key"]')?.content ?? '';
 }
 
 function variantFor(item: WizardItem): ProductVariant | undefined {
@@ -132,6 +152,140 @@ async function uploadArtwork(file: File) {
         errorMessage.value = 'Artwork could not be uploaded.';
     } finally {
         uploading.value = false;
+    }
+}
+
+function clearPaymentState() {
+    paymentMessage.value = '';
+    paymentError.value = '';
+    paymentIntentId.value = '';
+    paymentClientSecret.value = '';
+    paymentSubmitting.value = false;
+}
+
+async function detachCard() {
+    if (cardElement.value) {
+        cardElement.value.unmount();
+    }
+    cardElement.value = null;
+    stripeElements.value = null;
+}
+
+async function setupCard(intentClientSecret: string) {
+    if (!stripeCardMount.value) {
+        throw new Error('Card container is not ready.');
+    }
+
+    await detachCard();
+
+    if (!stripeClient.value) {
+        const key = stripePublishableKey();
+        if (!key) {
+            throw new Error('Stripe publishable key is missing. Add STRIPE_PUBLISHABLE_KEY to the environment.');
+        }
+
+        stripeClient.value = await loadStripe(key);
+        if (!stripeClient.value) {
+            throw new Error('Stripe SDK could not be initialized.');
+        }
+    }
+
+    stripeElements.value = stripeClient.value.elements({
+        clientSecret: intentClientSecret,
+    });
+    cardElement.value = stripeElements.value.create('card', {
+        style: {
+            base: {
+                color: '#0f172a',
+                '::placeholder': {
+                    color: '#64748b',
+                },
+            },
+        },
+    }) as StripeCardElement;
+
+    cardElement.value.mount(stripeCardMount.value);
+}
+
+async function createPaymentIntentForOrder(order: Order): Promise<void> {
+    try {
+        clearPaymentState();
+        const result = await store.createPaymentIntent(order, { force_new_intent: true });
+        paymentOrder.value = result.order;
+        paymentIntentId.value = result.payment.provider_payment_intent_id;
+        paymentClientSecret.value = result.client_secret ?? '';
+
+        if (!paymentClientSecret.value) {
+            throw new Error('Stripe did not return a client secret for the payment intent.');
+        }
+
+        await nextTick();
+        await setupCard(paymentClientSecret.value);
+        paymentMessage.value = 'Card is ready. Complete payment to submit the order.';
+    } catch (exception) {
+        paymentError.value = exception instanceof Error
+            ? exception.message
+            : 'Card payment could not be initialized.';
+    }
+}
+
+async function submitPayment() {
+    if (!paymentOrder.value || !paymentIntentId.value || !paymentClientSecret.value || !cardElement.value || !stripeClient.value) {
+        paymentError.value = 'Payment is not ready yet. Please retry on this step.';
+        return;
+    }
+
+    paymentSubmitting.value = true;
+    paymentError.value = '';
+
+    try {
+        const stripeResult = await stripeClient.value.confirmCardPayment(paymentClientSecret.value, {
+            payment_method: {
+                card: cardElement.value,
+            },
+        });
+
+        if (stripeResult.error) {
+            paymentError.value = stripeResult.error.message ?? 'Card payment could not be processed.';
+            if (stripeResult.paymentIntent?.id) {
+                paymentIntentId.value = stripeResult.paymentIntent.id;
+            }
+        }
+
+        const synced = await store.confirmPayment(paymentOrder.value, {
+            payment_intent_id: paymentIntentId.value,
+        });
+
+        if (synced.result.order_status === 'submitted') {
+            localStorage.removeItem(draftKey);
+            paymentMessage.value = 'Payment successful. Order has been submitted.';
+            await router.push(`/orders/${synced.order.uuid}`);
+            return;
+        }
+
+        if (synced.result.payment_status === 'failed') {
+            paymentError.value = `Ödeme başarısız: ${synced.result.payment_intent_status}`;
+        } else if (synced.result.requires_action) {
+            paymentError.value = 'Payment needs additional card verification.';
+        } else {
+            paymentError.value = `Ödeme durumu: ${synced.result.payment_status}. İlerleme için kart bilgilerini kontrol edin.`;
+        }
+
+        paymentOrder.value = synced.order;
+    } catch (exception) {
+        if (exception instanceof ApiError && Object.keys(exception.errors).length) {
+            paymentError.value = `${exception.message}: ${Object.values(exception.errors).flat().join(' | ')}`;
+            return;
+        }
+
+        if (exception instanceof ApiError) {
+            paymentError.value = exception.message;
+            return;
+        }
+
+        paymentError.value = 'Card payment could not be processed right now.';
+    } finally {
+        paymentSubmitting.value = false;
     }
 }
 
@@ -237,6 +391,20 @@ async function submit(status: 'verified' | 'draft' = 'verified') {
             }),
         });
 
+        if (status === 'draft') {
+            localStorage.removeItem(draftKey);
+            await router.push(`/orders/${order.uuid}`);
+            return;
+        }
+
+        if (requiresPayment.value) {
+            localStorage.removeItem(draftKey);
+            paymentOrder.value = order;
+            step.value = steps.value.length;
+            await createPaymentIntentForOrder(order);
+            return;
+        }
+
         localStorage.removeItem(draftKey);
         await router.push(`/orders/${order.uuid}`);
     } catch (exception) {
@@ -252,7 +420,30 @@ watch([items, shipping, notes, step, activeIndex], () => {
     saveLocalDraft('');
 }, { deep: true });
 
+watch(step, (value) => {
+    if (value !== steps.value.length) {
+        return;
+    }
+
+    if (!isPaymentStep.value || !paymentOrder.value) {
+        return;
+    }
+
+    void createPaymentIntentForOrder(paymentOrder.value);
+}, { immediate: true });
+
+watch([subtotalCents], () => {
+    const maxStep = steps.value.length;
+    if (step.value > maxStep) {
+        step.value = maxStep;
+    }
+});
+
 onMounted(loadLocalDraft);
+
+onBeforeUnmount(() => {
+    void detachCard();
+});
 </script>
 
 <template>
@@ -415,11 +606,11 @@ onMounted(loadLocalDraft);
                     <Textarea v-model="notes" label="Internal notes" rows="3" placeholder="Any order-level handling notes..." />
                     <div class="flex justify-between">
                         <Button variant="outline" @click="step = 3">Back</Button>
-                        <Button :disabled="!shippingReady" @click="step = 5">Next</Button>
+                        <Button :disabled="!shippingReady" @click="step = isPaymentStep ? 5 : 5">Next</Button>
                     </div>
                 </div>
 
-                <div v-else class="grid gap-5">
+                <div v-else-if="step === 5 && !isPaymentStep" class="grid gap-5">
                     <div class="flex items-center gap-2">
                         <Layers3 class="h-5 w-5 text-teal-700" />
                         <h3 class="text-lg font-bold text-slate-950">Summary</h3>
@@ -447,6 +638,29 @@ onMounted(loadLocalDraft);
                             <Button variant="outline" :disabled="submitting" @click="submit('draft')"><Save class="h-4 w-4" /> Create draft</Button>
                             <Button :disabled="submitting" @click="submit('verified')"><Check class="h-4 w-4" /> Submit order</Button>
                         </div>
+                    </div>
+                </div>
+
+                <div v-else-if="isPaymentStep" class="grid gap-5">
+                    <div class="flex items-center gap-2">
+                        <CreditCard class="h-5 w-5 text-teal-700" />
+                        <h3 class="text-lg font-bold text-slate-950">Payment</h3>
+                    </div>
+
+                    <div class="rounded-md border border-slate-200 p-4">
+                        <p class="mb-3 text-sm text-slate-600">Kredi kartı ile güvenli ödeme. Tutar: <strong>{{ money(subtotalCents) }}</strong>.</p>
+                        <div ref="stripeCardMount" class="min-h-[48px] rounded-md border border-slate-200 p-3"></div>
+                    </div>
+
+                    <Alert v-if="paymentMessage" tone="success" title="Ödeme hazırlanıyor" :description="paymentMessage" />
+                    <Alert v-if="paymentError" tone="danger" title="Ödeme hatası" :description="paymentError" />
+
+                    <div class="flex flex-wrap justify-between gap-2">
+                        <Button variant="outline" @click="step = 5">Back</Button>
+                        <Button :disabled="paymentSubmitting" @click="submitPayment">
+                            <Check class="h-4 w-4" />
+                            {{ paymentSubmitting ? 'Ödeme işleniyor...' : `Pay ${money(subtotalCents)}` }}
+                        </Button>
                     </div>
                 </div>
             </Card>

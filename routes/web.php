@@ -1,19 +1,23 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\ClaimController;
 use App\Http\Controllers\Api\IssueController;
 use App\Http\Controllers\Api\MediaUploadController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\NotificationSubscriptionController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PortalController;
 use App\Http\Controllers\Api\ProductCatalogController;
 use App\Http\Controllers\Api\ProductMappingController;
 use App\Http\Controllers\Api\RequiredActionController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Middleware\EnsureActiveTenant;
+use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Support\Facades\Route;
 
-Route::prefix('api')->group(function () {
+Route::prefix('api')->middleware('throttle:120,1')->group(function () {
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
     Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:5,1');
     Route::post('/auth/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:5,1');
@@ -38,6 +42,8 @@ Route::prefix('api')->group(function () {
         Route::patch('/orders/{uuid}/address', [OrderController::class, 'updateAddress']);
         Route::patch('/orders/{uuid}/notes', [OrderController::class, 'updateNotes']);
         Route::post('/orders/{uuid}/transition', [OrderController::class, 'transition']);
+        Route::post('/orders/{uuid}/payment/intent', [PaymentController::class, 'intent']);
+        Route::post('/orders/{uuid}/payment/confirm', [PaymentController::class, 'confirm']);
         Route::get('/products', [ProductCatalogController::class, 'index']);
         Route::post('/products/types', [ProductCatalogController::class, 'storeType']);
         Route::patch('/products/types/{productType}', [ProductCatalogController::class, 'updateType']);
@@ -66,12 +72,19 @@ Route::prefix('api')->group(function () {
         Route::post('/issues/{issue}/comments', [IssueController::class, 'comment'])->whereNumber('issue');
         Route::post('/issues/{issue}/read', [IssueController::class, 'markRead'])->whereNumber('issue');
         Route::post('/issues/{type}', [IssueController::class, 'store']);
+        Route::post('/claims/{issue}/resolution', [ClaimController::class, 'resolve'])->whereNumber('issue');
         Route::patch('/notifications/subscriptions/{subscription}', [NotificationSubscriptionController::class, 'update']);
+        Route::get('/notifications/logs', [NotificationController::class, 'logs']);
+        Route::get('/notifications/logs/{log}', [NotificationController::class, 'preview']);
+        Route::post('/notifications/logs/{log}/retry', [NotificationController::class, 'retry']);
 
         Route::get('/users', [UserController::class, 'index']);
         Route::post('/users/invites', [UserController::class, 'invite']);
         Route::patch('/users/{user}', [UserController::class, 'update']);
     });
+    Route::withoutMiddleware([VerifyCsrfToken::class])->post('/payments/stripe/webhook', [PaymentController::class, 'webhook']);
+
+    Route::get('/notifications/unsubscribe/{token}', [NotificationController::class, 'unsubscribe'])->name('notifications.unsubscribe');
 });
 
 Route::get('/{any?}', function () {

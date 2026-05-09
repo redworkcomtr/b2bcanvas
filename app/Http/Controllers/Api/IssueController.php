@@ -171,6 +171,6 @@ class IssueController extends Controller
 
     private function freshIssue(Issue $issue): Issue
     {
-        return $issue->fresh(['order', 'comments.user', 'assignedTo']);
+        return $issue->fresh(['order', 'comments.user', 'assignedTo', 'claimResolution', 'claimResolution.user']);
     }
 }

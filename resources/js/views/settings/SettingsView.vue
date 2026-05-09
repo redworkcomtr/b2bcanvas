@@ -1,21 +1,41 @@
 <script setup lang="ts">
-import { Bell, Mail, ShieldCheck, UserPlus, Users } from 'lucide-vue-next';
-import { computed, reactive, ref } from 'vue';
+import { Bell, Eye, Mail, RefreshCcw, ShieldCheck, UserPlus, Users } from 'lucide-vue-next';
+import { computed, reactive, ref, watch } from 'vue';
 
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Card from '@/components/ui/Card.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import Input from '@/components/ui/Input.vue';
+import Dialog from '@/components/ui/Dialog.vue';
 import Select from '@/components/ui/Select.vue';
 import DataTable from '@/components/ui/Table.vue';
 import { ApiError, usePortalStore } from '@/stores/portal';
-import type { User } from '@/types/portal';
+import type { NotificationLog, User } from '@/types/portal';
+import { dateLabel } from '@/lib/utils';
+
+type NotificationLogPreview = {
+    subject: string;
+    body_html: string;
+    body_text: string | null;
+    status: string;
+    attempts: number;
+    max_attempts: number;
+    error_message: string | null;
+};
 
 const store = usePortalStore();
 const inviteLoading = ref(false);
 const inviteMessage = ref('');
 const inviteError = ref('');
+const logsLoading = ref(false);
+const logsLoadError = ref('');
+const logsDialogOpen = ref(false);
+const selectedLog = ref<NotificationLog | null>(null);
+const selectedLogRetryEmail = ref('');
+const logRetryMessage = ref('');
+const logRetryBusy = ref(false);
+const previewLog = ref<NotificationLogPreview | null>(null);
 const roleOptions: User['role'][] = ['admin', 'operations', 'support', 'viewer'];
 const canManageUsers = computed(() => store.can('manage_users'));
 const inviteForm = reactive({
@@ -30,6 +50,92 @@ const labels: Record<string, string> = {
     ORDER_ISSUE_COMMENT_ADDED: 'Order issue comment added',
     ORDER_VALIDATION_FAILED: 'Order validation failed',
 };
+
+const logsSummary = computed(() => ({
+    total: store.notificationLogs.length,
+    sent: store.notificationLogs.filter((log) => log.status === 'sent').length,
+    queued: store.notificationLogs.filter((log) => log.status === 'queued').length,
+    failed: store.notificationLogs.filter((log) => log.status === 'failed').length,
+}));
+
+function toneForNotificationStatus(status: string): 'neutral' | 'success' | 'warning' | 'danger' | 'info' {
+    if (status === 'sent') {
+        return 'success';
+    }
+
+    if (status === 'failed') {
+        return 'danger';
+    }
+
+    if (status === 'queued' || status === 'pending') {
+        return 'info';
+    }
+
+    return 'neutral';
+}
+
+async function loadNotificationLogs() {
+    logsLoadError.value = '';
+    logsLoading.value = true;
+
+    try {
+        await store.loadNotificationLogs();
+    } catch {
+        logsLoadError.value = 'Notification logs could not be loaded.';
+    } finally {
+        logsLoading.value = false;
+    }
+}
+
+async function openNotificationLog(log: NotificationLog) {
+    selectedLog.value = log;
+    selectedLogRetryEmail.value = log.recipient_email;
+    logRetryMessage.value = '';
+    previewLog.value = null;
+    logsDialogOpen.value = true;
+
+    try {
+        previewLog.value = await store.previewNotificationLog(log);
+    } catch {
+        logRetryMessage.value = 'Preview could not be loaded.';
+    }
+}
+
+function closeNotificationLogDialog(open: boolean) {
+    if (!open) {
+        logsDialogOpen.value = false;
+        selectedLog.value = null;
+        previewLog.value = null;
+        logRetryMessage.value = '';
+        selectedLogRetryEmail.value = '';
+    }
+}
+
+async function retrySelectedNotificationLog() {
+    if (!selectedLog.value) {
+        return;
+    }
+
+    logRetryBusy.value = true;
+    logRetryMessage.value = '';
+
+    try {
+        const payload = selectedLogRetryEmail.value && selectedLogRetryEmail.value !== selectedLog.value.recipient_email
+            ? { recipient_email: selectedLogRetryEmail.value }
+            : {};
+
+        const updated = await store.retryNotificationLog(selectedLog.value, payload);
+        selectedLog.value = updated;
+        selectedLogRetryEmail.value = updated.recipient_email;
+        previewLog.value = await store.previewNotificationLog(updated);
+        await loadNotificationLogs();
+        logRetryMessage.value = 'Notification was queued again. The selected recipient has been updated.';
+    } catch {
+        logRetryMessage.value = 'Retry request could not be sent. Check the address and try again.';
+    } finally {
+        logRetryBusy.value = false;
+    }
+}
 
 function roleTone(role: string): 'neutral' | 'success' | 'warning' | 'danger' | 'info' {
     return role === 'owner' || role === 'admin' ? 'info' : role === 'viewer' ? 'neutral' : 'success';
@@ -60,6 +166,16 @@ async function updateRole(user: User, role: User['role']) {
 async function toggleActive(user: User) {
     await store.updateUser(user, { active: !user.active });
 }
+
+watch(
+    () => canManageUsers.value,
+    (canManage) => {
+        if (canManage) {
+            void loadNotificationLogs();
+        }
+    },
+    { immediate: true },
+);
 </script>
 
 <template>
@@ -220,5 +336,153 @@ async function toggleActive(user: User) {
                 </div>
             </Card>
         </div>
+
+        <Card>
+            <div class="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-start">
+                <div class="flex items-center gap-2">
+                    <Bell class="h-5 w-5 text-teal-700" />
+                    <div>
+                        <h3 class="text-lg font-bold text-slate-950">Notification Logs</h3>
+                        <p class="text-sm text-slate-500">Email delivery history with preview and retry actions.</p>
+                    </div>
+                </div>
+                <Button
+                    v-if="canManageUsers"
+                    size="sm"
+                    variant="outline"
+                    :disabled="logsLoading"
+                    @click="loadNotificationLogs"
+                >
+                    {{ logsLoading ? 'Refreshing...' : 'Refresh logs' }}
+                </Button>
+            </div>
+
+            <template v-if="canManageUsers">
+                <div class="mb-4 grid gap-3 md:grid-cols-4">
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <p class="text-xs uppercase tracking-wide text-slate-500">Total</p>
+                        <p class="mt-1 text-xl font-bold text-slate-900">{{ logsSummary.total }}</p>
+                    </div>
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <p class="text-xs uppercase tracking-wide text-slate-500">Sent</p>
+                        <p class="mt-1 text-xl font-bold text-emerald-700">{{ logsSummary.sent }}</p>
+                    </div>
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <p class="text-xs uppercase tracking-wide text-slate-500">Queued</p>
+                        <p class="mt-1 text-xl font-bold text-sky-700">{{ logsSummary.queued }}</p>
+                    </div>
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <p class="text-xs uppercase tracking-wide text-slate-500">Failed</p>
+                        <p class="mt-1 text-xl font-bold text-red-700">{{ logsSummary.failed }}</p>
+                    </div>
+                </div>
+
+                <p v-if="logsLoadError" class="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{{ logsLoadError }}</p>
+
+                <DataTable min-width="980px">
+                    <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+                        <tr>
+                            <th class="px-4 py-3">Event</th>
+                            <th class="px-4 py-3">Recipient</th>
+                            <th class="px-4 py-3">Status</th>
+                            <th class="px-4 py-3">Attempts</th>
+                            <th class="px-4 py-3">Created</th>
+                            <th class="px-4 py-3 text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200">
+                        <tr v-if="logsLoading">
+                            <td colspan="6" class="px-4 py-4 text-slate-500">Loading notification logs...</td>
+                        </tr>
+                        <tr v-else-if="store.notificationLogs.length === 0">
+                            <td colspan="6" class="px-4 py-4">
+                                <EmptyState
+                                    title="No email logs yet"
+                                    description="Notification events will appear when the system dispatches portal emails."
+                                    :icon="Mail"
+                                />
+                            </td>
+                        </tr>
+                        <tr v-for="log in store.notificationLogs" :key="log.id" class="bg-white">
+                            <td class="px-4 py-3">
+                                <p class="font-semibold text-slate-950">{{ labels[log.event] ?? log.event }}</p>
+                                <p class="text-xs text-slate-500">#{{ log.id }}</p>
+                            </td>
+                            <td class="px-4 py-3 text-slate-700">{{ log.recipient_email }}</td>
+                            <td class="px-4 py-3"><Badge :tone="toneForNotificationStatus(log.status)">{{ log.status }}</Badge></td>
+                            <td class="px-4 py-3 text-slate-700">{{ log.attempts }}/{{ log.max_attempts }}</td>
+                            <td class="px-4 py-3 text-slate-700">{{ dateLabel(log.created_at) }}</td>
+                            <td class="px-4 py-3 text-right">
+                                <Button size="sm" variant="outline" @click="openNotificationLog(log)">
+                                    <Eye class="h-4 w-4" />
+                                    Preview
+                                </Button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </DataTable>
+            </template>
+
+            <EmptyState
+                v-else
+                title="Log access is restricted"
+                description="Manage-users permission is required to inspect notification logs, preview email bodies and retry delivery."
+                :icon="ShieldCheck"
+            />
+        </Card>
     </div>
+
+    <Dialog :open="logsDialogOpen" title="Notification log" description="Preview the email content and retry delivery if needed." @update:open="closeNotificationLogDialog">
+        <template v-if="selectedLog">
+            <div class="grid gap-4">
+                <div class="grid gap-3 md:grid-cols-2">
+                    <div>
+                        <p class="text-xs uppercase text-slate-500">Event</p>
+                        <p class="font-semibold text-slate-950">{{ selectedLog.event }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs uppercase text-slate-500">Status</p>
+                        <Badge :tone="toneForNotificationStatus(selectedLog.status)">{{ selectedLog.status }}</Badge>
+                    </div>
+                    <div>
+                        <p class="text-xs uppercase text-slate-500">Created</p>
+                        <p class="font-semibold text-slate-950">{{ dateLabel(selectedLog.created_at) }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs uppercase text-slate-500">Attempts</p>
+                        <p class="font-semibold text-slate-950">{{ selectedLog.attempts }}/{{ selectedLog.max_attempts }}</p>
+                    </div>
+                </div>
+
+                <Input v-model="selectedLogRetryEmail" label="Retry recipient" type="email" />
+
+                <div class="rounded-md border border-slate-200 bg-slate-50 p-3">
+                    <p class="text-xs uppercase text-slate-500">Subject</p>
+                    <p class="font-semibold text-slate-950">{{ previewLog?.subject ?? selectedLog.subject }}</p>
+                    <p v-if="selectedLog.message_id" class="mt-2 text-xs text-slate-500">Message-ID: {{ selectedLog.message_id }}</p>
+                    <p v-if="previewLog?.error_message || selectedLog.error_message" class="mt-2 text-xs font-medium text-red-700">{{ previewLog?.error_message ?? selectedLog.error_message }}</p>
+                </div>
+
+                <div class="rounded-md border border-slate-200 p-3">
+                    <p class="text-xs uppercase text-slate-500">Body preview</p>
+                    <p v-if="previewLog?.body_text !== null" class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-sm text-slate-700">
+                        {{ previewLog?.body_text || 'No text content.' }}
+                    </p>
+                    <div v-else class="prose mt-2 max-h-64 overflow-auto" v-html="previewLog?.body_html ?? selectedLog.body_html" />
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <Button size="sm" :disabled="logRetryBusy" @click="retrySelectedNotificationLog">
+                        <RefreshCcw class="h-4 w-4" />
+                        {{ logRetryBusy ? 'Retrying...' : 'Retry send' }}
+                    </Button>
+                    <Button size="sm" variant="outline" @click="logsDialogOpen = false">Close</Button>
+                </div>
+
+                <p v-if="logRetryMessage" class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+                    {{ logRetryMessage }}
+                </p>
+            </div>
+        </template>
+    </Dialog>
 </template>

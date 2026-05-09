@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\NotificationRequested;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\Import;
@@ -70,6 +71,7 @@ class OrderController extends Controller
                 'items.variant.productType',
                 'issues.comments.user',
                 'issues.assignedTo',
+                'issues.claimResolution.user',
                 'requiredActions.comments.user',
                 'statusEvents.user',
                 'mediaFiles',
@@ -225,14 +227,16 @@ class OrderController extends Controller
             ];
         });
 
-        $status = $validated['status'] ?? 'verified';
         $subtotal = (int) $pricedItems->sum(fn (array $item): int => $item['price']['subtotal_cents']);
+        $status = $validated['status'] ?? 'verified';
+        $requiresPayment = $status !== 'draft' && $subtotal > 0;
 
         $order = Order::query()->create([
             'uuid' => (string) Str::uuid(),
             'tenant_id' => $tenantId,
             'order_number' => $validated['order_number'],
             'status' => $status,
+            'payment_status' => $requiresPayment ? 'unpaid' : 'not_required',
             'customer_name' => $validated['customer_name'],
             'shipping_service' => $validated['shipping_service'] ?? null,
             'shipping_address' => $validated['shipping_address'],
@@ -388,11 +392,34 @@ class OrderController extends Controller
             ->with(['rules', 'variant.productType'])
             ->get();
 
-        $rows = collect($parsed['rows'])->map(function (array $row) use ($matcher, $mappings, $tenantId): array {
+        $rows = collect($parsed['rows'])->map(function (array $row) use ($matcher, $mappings, $tenantId, $request): array {
             $payload = $row['payload'];
             $rowErrors = $row['status'] === 'invalid' ? ['Row contains missing or invalid required fields.'] : [];
             if (($payload['order_number'] ?? null) && Order::query()->forTenant($tenantId)->where('order_number', $payload['order_number'])->exists()) {
                 $rowErrors[] = 'order_number already exists.';
+                $this->createOrRefreshImportRequiredAction(
+                    tenantId: $tenantId,
+                    orderId: null,
+                    type: 'duplicate_order',
+                    title: 'Duplicate order number in import',
+                    description: 'The order number from this import row already exists in the system.',
+                    payload: [
+                        'order_number' => (string) $payload['order_number'],
+                        'row_number' => (int) $row['row_number'],
+                    ],
+                );
+                NotificationRequested::dispatch(
+                    'ORDER_VALIDATION_FAILED',
+                    $tenantId,
+                    [
+                        'order_number' => $payload['order_number'],
+                        'row_number' => $row['row_number'],
+                        'import_id' => null,
+                        'reason' => 'Order number already exists in the system.',
+                        'error_summary' => 'Duplicate order number found during import preview.',
+                    ],
+                    $request->user(),
+                );
             }
             $match = $matcher->bestMatch([
                 'sku' => $payload['item_sku'] ?? null,
@@ -475,7 +502,41 @@ class OrderController extends Controller
         foreach ($import->rows->where('status', 'ready') as $row) {
             $payload = $row->payload;
             if (Order::query()->forTenant($import->tenant_id)->where('order_number', $payload['order_number'])->exists()) {
-                $row->update(['status' => 'needs_action', 'errors' => [...($row->errors ?? []), 'order_number already exists.']]);
+                $row->update([
+                    'status' => 'needs_action',
+                    'errors' => [...($row->errors ?? []), 'order_number already exists.'],
+                ]);
+
+                $actionPayload = [
+                    'order_number' => (string) $payload['order_number'],
+                    'import_id' => $import->id,
+                    'row_number' => $row->row_number,
+                    'item_name' => (string) ($payload['item_name'] ?? ''),
+                    'item_sku' => (string) ($payload['item_sku'] ?? ''),
+                ];
+
+                $this->createOrRefreshImportRequiredAction(
+                    tenantId: $import->tenant_id,
+                    orderId: null,
+                    type: 'duplicate_order',
+                    title: 'Duplicate order in import',
+                    description: 'An import row cannot be created because this order number already exists.',
+                    payload: $actionPayload,
+                );
+
+                NotificationRequested::dispatch(
+                    'ORDER_VALIDATION_FAILED',
+                    $import->tenant_id,
+                    [
+                        'order_number' => $payload['order_number'],
+                        'row_number' => $row->row_number,
+                        'import_id' => $import->id,
+                        'reason' => 'Order number already exists in the system.',
+                        'error_summary' => 'Duplicate order number found during import commit.',
+                    ],
+                    $request->user(),
+                );
+
                 $skipped++;
 
                 continue;
@@ -490,6 +551,7 @@ class OrderController extends Controller
                 'tenant_id' => $import->tenant_id,
                 'order_number' => $payload['order_number'],
                 'status' => 'verified',
+                'payment_status' => 'unpaid',
                 'customer_name' => $payload['customer_name'],
                 'shipping_service' => $payload['shipping_service'] ?? 'Standard Ground',
                 'shipping_address' => [
@@ -543,6 +605,54 @@ class OrderController extends Controller
             'import' => $import->fresh('rows'),
             'created_orders' => $created,
             'skipped_rows' => $skipped,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function createOrRefreshImportRequiredAction(int $tenantId, ?int $orderId, string $type, string $title, string $description, array $payload): RequiredAction
+    {
+        $action = RequiredAction::query()
+            ->forTenant($tenantId)
+            ->where('order_id', $orderId)
+            ->where('type', $type)
+            ->where('status', '!=', 'resolved')
+            ->where('title', $title)
+            ->get()
+            ->first(function (RequiredAction $existing) use ($payload): bool {
+                $existingPayload = $existing->payload ?? [];
+                foreach (['order_number', 'row_number', 'import_id'] as $field) {
+                    if (! array_key_exists($field, $payload)) {
+                        continue;
+                    }
+
+                    if (($existingPayload[$field] ?? null) !== $payload[$field]) {
+                        return false;
+                    }
+                }
+
+                return true;
+            });
+
+        if ($action) {
+            return tap($action)->update([
+                'description' => $description,
+                'payload' => [...($action->payload ?? []), ...$payload],
+                'last_activity_at' => now(),
+            ]);
+        }
+
+        return RequiredAction::query()->create([
+            'tenant_id' => $tenantId,
+            'order_id' => $orderId,
+            'type' => $type,
+            'status' => 'open',
+            'priority' => 'normal',
+            'title' => $title,
+            'description' => $description,
+            'payload' => $payload,
+            'last_activity_at' => now(),
         ]);
     }
 
@@ -691,6 +801,7 @@ class OrderController extends Controller
             'issues.assignedTo',
             'requiredActions.comments.user',
             'statusEvents.user',
+            'payments',
             'mediaFiles',
             'auditLogs.user',
         ]);

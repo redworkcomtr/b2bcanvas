@@ -10,7 +10,7 @@ class ProductMappingEngine
     public function __construct(private readonly MappingRuleMatcher $matcher) {}
 
     /**
-     * @param array<string, string|null> $item
+     * @param  array<string, string|null>  $item
      * @return array<string, mixed>
      */
     public function simulate(int $tenantId, array $item, ?int $excludeMappingId = null): array
@@ -33,7 +33,7 @@ class ProductMappingEngine
     }
 
     /**
-     * @param array<int, array<string, mixed>> $rules
+     * @param  array<int, array<string, mixed>>  $rules
      * @return Collection<int, ProductMapping>
      */
     public function duplicateRuleMappings(int $tenantId, array $rules, ?int $excludeMappingId = null): Collection
@@ -58,7 +58,7 @@ class ProductMappingEngine
     }
 
     /**
-     * @param array<int, array<string, mixed>> $rules
+     * @param  array<int, array<string, mixed>>  $rules
      * @return array<int, array<string, mixed>>
      */
     public function ruleConflicts(int $tenantId, array $rules, ?int $excludeMappingId = null): array
@@ -73,7 +73,7 @@ class ProductMappingEngine
     }
 
     /**
-     * @param array<string, string|null> $item
+     * @param  array<string, string|null>  $item
      * @return array<string, mixed>
      */
     private function candidatePayload(array $item, ProductMapping $mapping, bool $matched): array
@@ -88,7 +88,7 @@ class ProductMappingEngine
     }
 
     /**
-     * @param array<string, mixed> $rule
+     * @param  array<string, mixed>  $rule
      */
     private function ruleSignature(array $rule): string
     {

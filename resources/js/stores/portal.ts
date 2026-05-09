@@ -5,9 +5,11 @@ import type {
     ImportBatch,
     ImportPreview,
     Issue,
+    NotificationLog,
     MappingRule,
     MappingMutationResult,
     MediaFile,
+    Payment,
     NotificationSubscription,
     Order,
     OrdersResponse,
@@ -85,6 +87,7 @@ export const usePortalStore = defineStore('portal', {
         issues: [] as Issue[],
         requiredActions: [] as RequiredAction[],
         notificationSubscriptions: [] as NotificationSubscription[],
+        notificationLogs: [] as NotificationLog[],
         users: [] as User[],
         userInvites: [] as UserInvite[],
     }),
@@ -179,6 +182,37 @@ export const usePortalStore = defineStore('portal', {
             this.orders.unshift(order);
             await this.load();
             return order;
+        },
+        async createPaymentIntent(order: Order, options: { force_new_intent?: boolean } = {}) {
+            const payload = await request<{
+                order: Order;
+                payment: Payment;
+                client_secret: string;
+            }>(`/api/orders/${order.uuid}/payment/intent`, {
+                method: 'POST',
+                body: JSON.stringify(options),
+            });
+
+            this.replaceOrder(payload.order);
+            return payload;
+        },
+        async confirmPayment(order: Order, payload: { payment_intent_id: string }) {
+            const result = await request<{
+                order: Order;
+                result: {
+                    payment_status: string;
+                    order_status: string;
+                    payment_intent_status: string;
+                    requires_action: boolean;
+                };
+            }>(`/api/orders/${order.uuid}/payment/confirm`, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+
+            this.replaceOrder(result.order);
+            await this.load();
+            return result;
         },
         async fetchOrders(params: Record<string, string | number | null | undefined> = {}) {
             const search = new URLSearchParams();
@@ -430,6 +464,26 @@ export const usePortalStore = defineStore('portal', {
             await this.load();
             return updated;
         },
+        async resolveClaim(
+            issue: Issue,
+            payload: {
+                decision: 'credit' | 'refund' | 'reprint' | 'reject';
+                amount_cents?: number;
+                currency?: string;
+                finance_reference?: string | null;
+                production_outcome?: string | null;
+                notes?: string | null;
+                evidence_files?: unknown[];
+            },
+        ) {
+            const updated = await request<Issue>(`/api/claims/${issue.id}/resolution`, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            this.replaceIssue(updated);
+            await this.load();
+            return updated;
+        },
         async markIssueRead(issue: Issue) {
             const updated = await request<Issue>(`/api/issues/${issue.id}/read`, { method: 'POST' });
             this.replaceIssue(updated);
@@ -495,6 +549,32 @@ export const usePortalStore = defineStore('portal', {
             if (index >= 0) {
                 this.notificationSubscriptions[index] = updated;
             }
+        },
+        async loadNotificationLogs() {
+            this.notificationLogs = await request<NotificationLog[]>('/api/notifications/logs');
+            return this.notificationLogs;
+        },
+        async previewNotificationLog(log: NotificationLog) {
+            return request<{
+                subject: string;
+                body_html: string;
+                body_text: string | null;
+                status: string;
+                attempts: number;
+                error_message: string | null;
+                max_attempts: number;
+            }>(`/api/notifications/logs/${log.id}`);
+        },
+        async retryNotificationLog(log: NotificationLog, payload: { recipient_email?: string } = {}) {
+            const updated = await request<NotificationLog>(`/api/notifications/logs/${log.id}/retry`, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            const index = this.notificationLogs.findIndex((item) => item.id === updated.id);
+            if (index >= 0) {
+                this.notificationLogs[index] = updated;
+            }
+            return updated;
         },
         async inviteUser(payload: { name: string; email: string; role: User['role'] }) {
             await request<{ user: User; invite: UserInvite }>('/api/users/invites', {

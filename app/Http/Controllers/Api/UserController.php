@@ -68,7 +68,7 @@ class UserController extends Controller
             ],
         );
 
-        foreach (['ORDER_SHIPPED', 'ORDER_ACTION_NEEDED', 'ORDER_ISSUE_COMMENT_ADDED', 'ORDER_VALIDATION_FAILED'] as $event) {
+        foreach (['ORDER_SHIPPED', 'ORDER_ACTION_NEEDED', 'ORDER_ISSUE_COMMENT_ADDED', 'ORDER_VALIDATION_FAILED', 'ORDER_PAYMENT_COMPLETED'] as $event) {
             NotificationSubscription::query()->firstOrCreate([
                 'user_id' => $user->id,
                 'event' => $event,
@@ -123,7 +123,7 @@ class UserController extends Controller
     }
 
     /**
-     * @param array<string, mixed> $metadata
+     * @param  array<string, mixed>  $metadata
      */
     private function audit(User $actor, string $event, User $target, array $metadata): void
     {

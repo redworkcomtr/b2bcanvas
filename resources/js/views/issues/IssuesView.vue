@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, CheckCircle2, Eye, MessageSquarePlus, Paperclip, RefreshCcw, Save, ShieldAlert } from 'lucide-vue-next';
+import { AlertTriangle, Banknote, CheckCircle2, Eye, MessageSquarePlus, Paperclip, RefreshCcw, Save, ShieldAlert } from 'lucide-vue-next';
 import { computed, reactive, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 
@@ -33,6 +33,13 @@ const resolutionNote = ref('');
 const resolutionVariantId = ref('');
 const actionError = ref('');
 const actionBusy = ref(false);
+const claimDecision = ref<'credit' | 'refund' | 'reprint' | 'reject'>('credit');
+const claimAmount = ref('');
+const claimCurrency = ref('USD');
+const claimFinanceReference = ref('');
+const claimProductionOutcome = ref('');
+const claimDecisionNotes = ref('');
+const claimEvidence = ref<MediaFile[]>([]);
 const activeActionStatuses = ['open', 'in_progress', 'escalated'];
 
 const addressResolution = reactive({
@@ -60,6 +67,9 @@ const issueUpdate = reactive({
     priority: 'normal',
     assigned_to_id: '',
 });
+
+const claimRequestTypes = ['Credit', 'Refund', 'Reprint', 'Reject'];
+const claimDecisions = ['credit', 'refund', 'reprint', 'reject'];
 
 const issueStatusTabs = [
     { label: 'All', value: 'all' },
@@ -109,6 +119,7 @@ const selectedIssue = computed<Issue | null>(() => {
 });
 
 const selectedIssueComments = computed(() => selectedIssue.value?.comments ?? []);
+const selectedIssueHasResolution = computed(() => Boolean(selectedIssue.value?.claim_resolution));
 const supportUsers = computed(() => store.users.filter((user) => user.active && ['owner', 'admin', 'support'].includes(user.role)));
 
 const actionRows = computed(() => store.requiredActions.filter((action) => {
@@ -147,10 +158,21 @@ const canResolveSelected = computed(() => {
     return true;
 });
 
+const selectedIssueCanResolve = computed(() => Boolean(
+    selectedIssue.value
+    && props.mode === 'claims'
+    && !['resolved', 'closed'].includes(selectedIssue.value.status),
+));
+
+const claimAmountRequired = computed(() => ['credit', 'refund'].includes(claimDecision.value));
+const claimAmountNumeric = computed(() => Number(claimAmount.value));
+
 watch(() => props.mode, () => {
     status.value = 'all';
     selectedIssueId.value = null;
     selectedActionId.value = null;
+    form.request_type = props.mode === 'claims' ? 'Credit' : 'Support';
+    form.reason = props.mode === 'claims' ? 'Damaged In Transit' : 'Never Received';
 });
 
 watch(() => selectedIssue.value?.id, () => {
@@ -161,6 +183,13 @@ watch(() => selectedIssue.value?.id, () => {
     issueUpdate.status = selectedIssue.value?.status ?? '';
     issueUpdate.priority = selectedIssue.value?.priority ?? 'normal';
     issueUpdate.assigned_to_id = String(selectedIssue.value?.assigned_to_id ?? '');
+    claimDecision.value = selectedIssueClaimDecision(selectedIssue.value);
+    claimAmount.value = selectedIssue.value?.claim_resolution?.amount_cents?.toString() ?? '';
+    claimCurrency.value = selectedIssue.value?.claim_resolution?.currency ?? 'USD';
+    claimFinanceReference.value = selectedIssue.value?.claim_resolution?.finance_reference ?? '';
+    claimProductionOutcome.value = selectedIssue.value?.claim_resolution?.production_outcome ?? '';
+    claimDecisionNotes.value = '';
+    claimEvidence.value = [];
 }, { immediate: true });
 
 watch(() => selectedAction.value?.id, () => {
@@ -207,6 +236,21 @@ function actionTypeCaption(action: RequiredAction) {
         duplicate_order: 'Decide whether the duplicate row should be skipped or processed.',
         product_unavailable: 'Choose an alternate SKU or document the customer decision.',
     } as Record<string, string>)[action.type] ?? 'Resolve the operational blocker and revalidate the record.';
+}
+
+function normalizeClaimDecision(value: string | null | undefined): 'credit' | 'refund' | 'reprint' | 'reject' {
+    const decision = (value ?? '').toLowerCase();
+    if (claimDecisions.includes(decision)) {
+        return decision as 'credit' | 'refund' | 'reprint' | 'reject';
+    }
+
+    return 'credit';
+}
+
+function selectedIssueClaimDecision(issue: Issue | null) {
+    return issue?.claim_resolution
+        ? (normalizeClaimDecision(issue.claim_resolution.decision))
+        : normalizeClaimDecision(issue?.request_type);
 }
 
 function payloadText(value: unknown) {
@@ -335,6 +379,53 @@ async function addIssueComment() {
         issueComment.value = '';
         issueAttachments.value = [];
         issueCommentInternal.value = false;
+    });
+}
+
+async function uploadClaimEvidence(file: File) {
+    await runIssueOperation(async () => {
+        const media = await store.uploadFile(file, 'claim_evidence');
+        claimEvidence.value = [...claimEvidence.value, media];
+    });
+}
+
+function removeClaimEvidence(file: MediaFile) {
+    claimEvidence.value = claimEvidence.value.filter((item) => item.id !== file.id);
+}
+
+function isValidClaimAmount() {
+    return !claimAmountRequired.value || Number.isFinite(claimAmountNumeric.value) && claimAmountNumeric.value >= 0;
+}
+
+async function resolveClaim() {
+    const issue = selectedIssue.value;
+    if (!issue || !selectedIssueCanResolve.value) {
+        return;
+    }
+
+    if (claimAmountRequired.value && !claimAmount.value.trim()) {
+        issueError.value = 'An amount is required for credit and refund decisions.';
+        return;
+    }
+
+    if (!isValidClaimAmount()) {
+        issueError.value = 'The amount must be a valid positive integer (in cents).';
+        return;
+    }
+
+    await runIssueOperation(async () => {
+        const updated = await store.resolveClaim(issue, {
+            decision: claimDecision.value,
+            amount_cents: claimAmountRequired.value ? claimAmountNumeric.value : undefined,
+            currency: claimCurrency.value,
+            finance_reference: claimFinanceReference.value.trim() || null,
+            production_outcome: claimProductionOutcome.value.trim() || null,
+            notes: claimDecisionNotes.value.trim() || null,
+            evidence_files: claimEvidence.value,
+        });
+        selectedIssueId.value = updated.id;
+        claimDecisionNotes.value = '';
+        claimEvidence.value = [];
     });
 }
 
@@ -692,20 +783,72 @@ async function reopenAction() {
                                 <span class="font-semibold text-slate-700">Linked order</span>
                                 <RouterLink :to="`/orders/${selectedIssue.order.uuid}`" class="ml-2 font-bold text-teal-700">{{ selectedIssue.order.order_number }}</RouterLink>
                             </div>
-                            <div v-if="issueError" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
-                                {{ issueError }}
-                            </div>
-                            <div class="flex flex-wrap gap-2">
-                                <Button :disabled="issueBusy" @click="saveSelectedIssue">
-                                    <Save class="h-4 w-4" />
-                                    Save
-                                </Button>
-                                <Button variant="outline" :disabled="issueBusy || selectedIssue.unread_notes_count === 0" @click="markSelectedIssueRead">
-                                    <Eye class="h-4 w-4" />
-                                    Mark Read
-                                </Button>
+                        <div v-if="issueError" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+                            {{ issueError }}
+                        </div>
+                        <div v-if="props.mode === 'claims' && selectedIssueHasResolution" class="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm">
+                            <p class="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-emerald-800">Latest claim decision</p>
+                            <div class="grid gap-2">
+                                <p class="font-semibold text-emerald-900">
+                                    <template v-if="selectedIssue.claim_resolution?.decision && selectedIssue.claim_resolution?.amount_cents">
+                                        {{ selectedIssue.claim_resolution.decision }} · {{ selectedIssue.claim_resolution.amount_cents }} {{ selectedIssue.claim_resolution.currency }}
+                                    </template>
+                                    <template v-else>
+                                        {{ selectedIssue.claim_resolution?.decision ?? 'Recorded' }}
+                                    </template>
+                                </p>
+                                <p v-if="selectedIssue.claim_resolution?.notes" class="text-slate-700">{{ selectedIssue.claim_resolution.notes }}</p>
+                                <p v-if="selectedIssue.claim_resolution?.finance_reference" class="text-slate-700">Finance ref: {{ selectedIssue.claim_resolution.finance_reference }}</p>
+                                <p v-if="selectedIssue.claim_resolution?.production_outcome" class="text-slate-700">{{ selectedIssue.claim_resolution.production_outcome }}</p>
                             </div>
                         </div>
+                        <div v-if="props.mode === 'claims'" class="grid gap-3 rounded-md border border-slate-200 bg-white p-4">
+                            <div class="mb-1 flex items-center justify-between">
+                                <h4 class="font-semibold text-slate-950">Claim Decision</h4>
+                                <Badge v-if="selectedIssue.status === 'resolved' || selectedIssue.status === 'closed'" tone="success">
+                                    {{ selectedIssue.status }}
+                                </Badge>
+                            </div>
+                            <div class="grid gap-3 sm:grid-cols-2">
+                                <Select v-model="claimDecision" label="Decision">
+                                    <option value="credit">Credit</option>
+                                    <option value="refund">Refund</option>
+                                    <option value="reprint">Reprint</option>
+                                    <option value="reject">Reject</option>
+                                </Select>
+                                <Input v-if="claimAmountRequired" v-model="claimAmount" label="Amount (cents)" type="number" min="0" step="1" />
+                                <Input v-if="!claimAmountRequired" v-model="claimAmount" label="Amount (optional)" type="number" min="0" step="1" />
+                                <Input v-model="claimCurrency" label="Currency" />
+                                <Input v-model="claimFinanceReference" label="Finance reference" />
+                                <Input v-model="claimProductionOutcome" label="Production outcome" />
+                            </div>
+                            <Textarea v-model="claimDecisionNotes" label="Decision notes" placeholder="Explain why this claim decision was taken." :rows="3" />
+                            <FileDropzone label="Attach evidence" description="Attach proof files that support the claim decision." accept="image/*,.pdf,.txt,.csv" @selected="uploadClaimEvidence" />
+                            <div v-if="claimEvidence.length" class="grid gap-2">
+                                <div v-for="file in claimEvidence" :key="file.id" class="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm">
+                                    <span class="truncate font-medium text-slate-700">{{ file.original_name }}</span>
+                                    <Button variant="ghost" size="sm" @click="removeClaimEvidence(file)">Remove</Button>
+                                </div>
+                            </div>
+                            <Button
+                                :disabled="issueBusy || !selectedIssueCanResolve || (claimAmountRequired && !claimAmount)"
+                                @click="resolveClaim"
+                            >
+                                <Banknote class="h-4 w-4" />
+                                Resolve Claim
+                            </Button>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <Button :disabled="issueBusy" @click="saveSelectedIssue">
+                                <Save class="h-4 w-4" />
+                                Save
+                            </Button>
+                            <Button variant="outline" :disabled="issueBusy || selectedIssue.unread_notes_count === 0" @click="markSelectedIssueRead">
+                                <Eye class="h-4 w-4" />
+                                Mark Read
+                            </Button>
+                        </div>
+                    </div>
 
                         <div class="border-t border-slate-200 pt-4">
                             <div class="mb-3 flex items-center justify-between gap-3">
@@ -782,15 +925,28 @@ async function reopenAction() {
                             <option v-for="order in store.orders" :key="order.id" :value="order.id">{{ order.order_number }} · {{ order.customer_name }}</option>
                         </Select>
                         <Select v-model="form.request_type" label="Request type">
-                            <option value="Support">Support</option>
-                            <option value="Credit">Credit</option>
+                            <template v-if="props.mode === 'claims'">
+                                <option v-for="type in claimRequestTypes" :key="type" :value="type">{{ type }}</option>
+                            </template>
+                            <template v-else>
+                                <option>Support</option>
+                            </template>
                         </Select>
                         <Select v-model="form.reason" label="Reason">
-                            <option>Damaged In Transit</option>
-                            <option>Never Received</option>
-                            <option>Ink Spits</option>
-                            <option>Streaking Or Banding</option>
-                            <option>Other</option>
+                            <template v-if="props.mode === 'claims'">
+                                <option>Damaged</option>
+                                <option>Lost</option>
+                                <option>Wrong Item</option>
+                                <option>Late</option>
+                                <option>Other</option>
+                            </template>
+                            <template v-else>
+                                <option>Damaged In Transit</option>
+                                <option>Never Received</option>
+                                <option>Ink Spits</option>
+                                <option>Streaking Or Banding</option>
+                                <option>Other</option>
+                            </template>
                         </Select>
                         <Textarea v-model="form.description" label="Description" required placeholder="Enter description" :rows="5" />
                         <div class="grid gap-3 md:grid-cols-2">

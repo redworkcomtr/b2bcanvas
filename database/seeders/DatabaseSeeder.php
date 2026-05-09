@@ -43,6 +43,7 @@ class DatabaseSeeder extends Seeder
                 'ORDER_ACTION_NEEDED',
                 'ORDER_ISSUE_COMMENT_ADDED',
                 'ORDER_VALIDATION_FAILED',
+                'ORDER_PAYMENT_COMPLETED',
             ] as $index => $event) {
                 NotificationSubscription::query()->create([
                     'user_id' => $user->id,

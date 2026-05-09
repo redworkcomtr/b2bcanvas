@@ -8,7 +8,7 @@ use App\Models\ProductVariant;
 class ProductPricingService
 {
     /**
-     * @param array<string, mixed> $options
+     * @param  array<string, mixed>  $options
      * @return array<string, mixed>
      */
     public function priceItem(ProductVariant $variant, int $quantity, array $options = []): array

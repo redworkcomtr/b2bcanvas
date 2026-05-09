@@ -7,9 +7,27 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 
-#[Fillable(['uuid', 'tenant_id', 'order_number', 'status', 'order_date', 'submitted_at', 'shipped_at', 'shipping_service', 'tracking_number', 'tracking_url', 'customer_name', 'shipping_address', 'totals', 'notes'])]
+#[Fillable([
+    'uuid',
+    'tenant_id',
+    'order_number',
+    'status',
+    'payment_status',
+    'paid_at',
+    'order_date',
+    'submitted_at',
+    'shipped_at',
+    'shipping_service',
+    'tracking_number',
+    'tracking_url',
+    'customer_name',
+    'shipping_address',
+    'totals',
+    'notes',
+])]
 class Order extends Model
 {
     use BelongsToTenant;
@@ -19,6 +37,7 @@ class Order extends Model
         return [
             'order_date' => 'datetime',
             'submitted_at' => 'datetime',
+            'paid_at' => 'datetime',
             'shipped_at' => 'datetime',
             'shipping_address' => 'array',
             'totals' => 'array',
@@ -53,6 +72,16 @@ class Order extends Model
     public function mediaFiles(): MorphMany
     {
         return $this->morphMany(MediaFile::class, 'mediable');
+    }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class);
+    }
+
+    public function latestPayment(): HasOne
+    {
+        return $this->hasMany(Payment::class)->latestOfMany();
     }
 
     public function auditLogs(): MorphMany

@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Events\NotificationRequested;
+use App\Listeners\NotificationDispatcher;
 use App\Models\Order;
 use App\Models\ProductMapping;
 use App\Models\User;
@@ -9,6 +11,7 @@ use App\Policies\IssuePolicy;
 use App\Policies\OrderPolicy;
 use App\Policies\ProductMappingPolicy;
 use App\Policies\UserPolicy;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -32,5 +35,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(ProductMapping::class, ProductMappingPolicy::class);
 
         Gate::define('create-issue', [IssuePolicy::class, 'create']);
+
+        Event::listen(NotificationRequested::class, [NotificationDispatcher::class, 'handle']);
     }
 }

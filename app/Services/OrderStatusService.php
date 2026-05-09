@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\NotificationRequested;
 use App\Models\AuditLog;
 use App\Models\Order;
 use App\Models\OrderStatusEvent;
@@ -36,13 +37,19 @@ class OrderStatusService
         return $this->transitions()[$order->status] ?? [];
     }
 
-    public function transition(Order $order, string $toStatus, User $user, ?string $note = null, array $metadata = []): OrderStatusEvent
+    public function transition(Order $order, string $toStatus, ?User $user = null, ?string $note = null, array $metadata = []): OrderStatusEvent
     {
         $fromStatus = $order->status;
 
         if (! in_array($toStatus, $this->allowedNextStatuses($order), true)) {
             throw ValidationException::withMessages([
                 'status' => ["Order cannot move from {$fromStatus} to {$toStatus}."],
+            ]);
+        }
+
+        if ($toStatus === 'submitted' && ! $this->isPaymentAllowed($order)) {
+            throw ValidationException::withMessages([
+                'status' => ['Order must be paid before it can be submitted.'],
             ]);
         }
 
@@ -64,16 +71,18 @@ class OrderStatusService
         $event = OrderStatusEvent::query()->create([
             'tenant_id' => $order->tenant_id,
             'order_id' => $order->id,
-            'user_id' => $user->id,
+            'user_id' => $user?->id,
             'from_status' => $fromStatus,
             'to_status' => $toStatus,
             'note' => $note,
             'metadata' => $metadata,
         ]);
 
+        $this->dispatchNotification($order, $user, $toStatus, $metadata, $note, $fromStatus);
+
         AuditLog::query()->create([
             'tenant_id' => $order->tenant_id,
-            'user_id' => $user->id,
+            'user_id' => $user?->id,
             'event' => 'order.status_changed',
             'auditable_type' => Order::class,
             'auditable_id' => $order->id,
@@ -86,5 +95,47 @@ class OrderStatusService
         ]);
 
         return $event;
+    }
+
+    private function isPaymentAllowed(Order $order): bool
+    {
+        if (in_array($order->payment_status, ['paid', 'not_required'], true)) {
+            return true;
+        }
+
+        if (($order->totals['subtotal_cents'] ?? 0) <= 0) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function dispatchNotification(Order $order, ?User $user, string $toStatus, array $metadata, ?string $note = null, string $fromStatus = 'draft'): void
+    {
+        $eventMap = match ($toStatus) {
+            'shipped' => 'ORDER_SHIPPED',
+            'action_needed' => 'ORDER_ACTION_NEEDED',
+            'validation_failed' => 'ORDER_VALIDATION_FAILED',
+            default => null,
+        };
+
+        if (! $eventMap) {
+            return;
+        }
+
+        NotificationRequested::dispatch(
+            $eventMap,
+            $order->tenant_id,
+            [
+                'order_number' => $order->order_number,
+                'order_id' => $order->id,
+                'to_status' => $toStatus,
+                'from_status' => $fromStatus,
+                'tracking_number' => $metadata['tracking_number'] ?? $order->tracking_number,
+                'tracking_url' => $metadata['tracking_url'] ?? $order->tracking_url,
+                'note' => $note ?? null,
+            ],
+            $user,
+        );
     }
 }

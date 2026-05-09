@@ -1,4 +1,8 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+<p align="center">
+  <a href="https://laravel.com" target="_blank">
+    <img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="260" alt="Laravel Logo">
+  </a>
+</p>
 
 <p align="center">
 <a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
@@ -6,6 +10,32 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
+
+## B2B Canvas
+
+Bu repo; Laravel + Vue 3 + shadcn-vue tabanlı bir B2B fulfillment portalıdır.
+Kullanıcı, ürün, sipariş, import, mapping, ticket, claim, required action ve bildirim akışlarını tek bir SaaS panelinde yönetir.
+
+## Lokal kurulum
+
+- `cp .env.example .env`
+- `composer install`
+- `php artisan migrate --force`
+- `npm install`
+- `npm run build`
+- `php artisan serve`
+
+Docker ile (AlmaLinux 9 tabanı):
+- `docker compose up --build`
+- Uygulama: `http://localhost:8010`
+
+## Production Readiness
+
+- `docker-compose.yml` içinde PostgreSQL, Redis, Mailpit ve MinIO yer alır.
+- Queue worker ve web servisleri ayrı containerlarda çalışır.
+- CI pipeline: `/.github/workflows/ci.yml`
+
+---
 
 ## About Laravel
 

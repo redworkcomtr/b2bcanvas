@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Backend + Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo, pdo_sqlite, pdo_pgsql, zip
+          coverage: none
+
+      - name: Install composer deps
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Setup .env
+        run: cp .env.example .env
+
+      - name: Generate app key
+        run: php artisan key:generate
+
+      - name: Run Laravel tests
+        run: php artisan test
+
+      - name: Run Pint
+        run: ./vendor/bin/pint --test
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install node deps
+        run: npm ci
+
+      - name: Run frontend tests
+        run: npm run test:unit
+
+      - name: Build frontend
+        run: npm run build
