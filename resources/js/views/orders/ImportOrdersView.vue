@@ -14,18 +14,34 @@ import { usePortalStore } from '@/stores/portal';
 import type { ImportBatch, ImportPreview } from '@/types/portal';
 
 const store = usePortalStore();
-const sample = `order_number,item_name,item_sku,quantity,customer_name,address_line_1,city,state,postal_code,country
-WEB-9001,Framed Art Print-Black / 36" x 24",MGC-FP-36x24_Black,1,Jordan Lee,101 Harbor Road,Seattle,WA,98101,US
-WEB-9002,Unknown marketplace product,CUSTOM-44x30,1,Mina Chen,225 Lake Drive,Denver,CO,80202,US`;
-const csv = ref(sample);
+const csv = ref('');
+const sampleFilename = ref('sample-import.csv');
+const sampleLoading = ref(true);
 const preview = ref<ImportPreview | null>(null);
 const history = ref<ImportBatch[]>([]);
 const loading = ref(false);
 const statusMessage = ref('');
 const errorMessage = ref('');
+const templateError = ref('');
 
 async function loadHistory() {
     history.value = await store.importHistory();
+}
+
+async function loadTemplate() {
+    sampleLoading.value = true;
+    templateError.value = '';
+
+    try {
+        const template = await store.importTemplate();
+        csv.value = template.sample;
+        sampleFilename.value = template.name;
+    } catch {
+        templateError.value = 'Sample template could not be loaded.';
+        csv.value = '';
+    } finally {
+        sampleLoading.value = false;
+    }
 }
 
 async function runPreview() {
@@ -65,7 +81,27 @@ function useUploadedCsv(file: File) {
     reader.readAsText(file);
 }
 
-onMounted(loadHistory);
+function downloadTemplate() {
+    const text = csv.value;
+    if (!text) {
+        return;
+    }
+
+    const file = new Blob([text], { type: 'text/csv;charset=utf-8' });
+    const link = document.createElement('a');
+    const href = URL.createObjectURL(file);
+    link.href = href;
+    link.download = sampleFilename.value || 'sample-import.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(href);
+}
+
+onMounted(() => {
+    void loadHistory();
+    void loadTemplate();
+});
 </script>
 
 <template>
@@ -90,12 +126,15 @@ onMounted(loadHistory);
                     :rows="12"
                     help="CSV is parsed immediately. XLSX files can be uploaded into the same intake surface once queue conversion is enabled."
                 />
+                <p v-if="templateError" class="mt-2 text-xs text-red-600">{{ templateError }}</p>
                 <div class="mt-4">
                     <FileDropzone label="Upload CSV file" description="CSV files are read locally into the preview editor." accept=".csv,.txt" @selected="useUploadedCsv" />
                 </div>
                 <div class="mt-4 flex flex-wrap justify-end gap-2">
-                    <Button variant="outline" @click="csv = sample"><Download class="h-4 w-4" /> Sample CSV</Button>
-                    <Button :disabled="loading" @click="runPreview"><Upload class="h-4 w-4" /> Preview Import</Button>
+                    <Button variant="outline" :disabled="sampleLoading" @click="downloadTemplate">
+                        <Download class="h-4 w-4" /> {{ sampleLoading ? 'Loading sample...' : `Download ${sampleFilename}` }}
+                    </Button>
+                    <Button :disabled="loading || !csv" @click="runPreview"><Upload class="h-4 w-4" /> Preview Import</Button>
                 </div>
             </Card>
 

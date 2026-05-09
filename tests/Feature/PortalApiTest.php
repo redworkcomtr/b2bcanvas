@@ -414,6 +414,23 @@ class PortalApiTest extends TestCase
         ]);
     }
 
+    public function test_import_template_is_served_from_api(): void
+    {
+        $this->seed();
+        $this->actingAs(User::query()->where('email', 'selin@example.test')->firstOrFail());
+
+        $response = $this->getJson('/api/orders/imports/template');
+
+        $response->assertOk()
+            ->assertJsonPath('name', 'sample-import.csv')
+            ->assertJsonStructure([
+                'name',
+                'headers',
+                'sample',
+            ])
+            ->assertJsonPath('headers.0', 'order_number');
+    }
+
     public function test_import_preview_routes_unmapped_rows_to_actions(): void
     {
         $this->seed();

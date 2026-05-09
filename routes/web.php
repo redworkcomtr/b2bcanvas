@@ -34,6 +34,7 @@ Route::prefix('api')->middleware('throttle:120,1')->group(function () {
         Route::post('/orders/saved-views', [OrderController::class, 'storeSavedView']);
         Route::delete('/orders/saved-views/{savedView}', [OrderController::class, 'destroySavedView']);
         Route::get('/orders/imports', [OrderController::class, 'importHistory']);
+        Route::get('/orders/imports/template', [OrderController::class, 'importTemplate']);
         Route::post('/orders/imports/preview', [OrderController::class, 'importPreview']);
         Route::post('/orders/imports/{import}/commit', [OrderController::class, 'commitImport']);
         Route::get('/orders/imports/{import}/errors', [OrderController::class, 'importErrorReport']);

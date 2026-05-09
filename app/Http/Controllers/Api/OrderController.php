@@ -372,6 +372,21 @@ class OrderController extends Controller
             ->get());
     }
 
+    public function importTemplate(Request $request): JsonResponse
+    {
+        Gate::authorize('create', Order::class);
+
+        return response()->json([
+            'name' => 'sample-import.csv',
+            'headers' => ['order_number', 'item_name', 'item_sku', 'quantity', 'customer_name', 'address_line_1', 'city', 'state', 'postal_code', 'country'],
+            'sample' => implode("\n", [
+                'order_number,item_name,item_sku,quantity,customer_name,address_line_1,city,state,postal_code,country',
+                'WEB-9001,"Framed Art Print-Black / 36\" x 24\"",MGC-FP-36x24_Black,1,Jordan Lee,101 Harbor Road,Seattle,WA,98101,US',
+                'WEB-9002,Unknown marketplace product,CUSTOM-44x30,1,Mina Chen,225 Lake Drive,Denver,CO,80202,US',
+            ]),
+        ]);
+    }
+
     public function importPreview(Request $request, CsvOrderImportParser $parser, MappingRuleMatcher $matcher): JsonResponse
     {
         Gate::authorize('create', Order::class);

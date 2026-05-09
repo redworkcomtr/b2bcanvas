@@ -318,6 +318,9 @@ export const usePortalStore = defineStore('portal', {
                 body: JSON.stringify({ csv }),
             });
         },
+        async importTemplate() {
+            return request<{ sample: string; name: string; headers: string[] }>('/api/orders/imports/template');
+        },
         async importHistory() {
             return request<ImportBatch[]>('/api/orders/imports');
         },
