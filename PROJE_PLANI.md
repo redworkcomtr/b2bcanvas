@@ -13,7 +13,7 @@ Repo kökünde halihazırda çalışan bir Laravel 13 + Vue 3 + TypeScript SPA m
 - **13 API controller** ve karşılık gelen rotalar (`routes/web.php` içinde `/api` prefix'i altında): Auth, Portal, Order, ProductCatalog, ProductMapping, Issue, Claim, RequiredAction, Notification, NotificationSubscription, Payment, MediaUpload, User.
 - **10+ migration**: temel B2B şeması, auth sertleştirme (user_invites, active flag), media files, orders core (tracking, status_events, saved_views), required_action ve ticket workflow alanları, claim_resolutions, notification mail logs, payments.
 - **Vue SPA**: `resources/js/` altında App.vue, app.ts, router, stores (Pinia), components, views (orders, issues, products, settings), types, lib. UI primitive'leri `resources/js/components/ui` altında lokal shadcn-vue (new-york stil, neutral baseColor, CSS variables) olarak duruyor.
-- **Tooling**: PHPUnit 12 + Pint + Pail (Laravel logs) + Tinker. JS tarafında Vitest 4 + @vue/test-utils. Vite 8, Tailwind 4, TypeScript. Yerel geliştirme PHP 8.3 + PostgreSQL 16 Homebrew servisleriyle çalışır.
+- **Tooling**: Pail (Laravel logs), Tinker, Vite 8, Tailwind 4, TypeScript. Otomatik test tooling'i kaldırıldı; doğrulama syntax-only ve canlı/staging akış kontrolü üzerinden yapılır. Yerel geliştirme PHP 8.3 + PostgreSQL 16 Homebrew servisleriyle çalışır.
 - **`docs/`**: api-contract.md, implementation-gap-report.md, implementation-notes.md, production-readiness.md — mevcut sürümün eksiklik raporu da burada (özellikle Import, Required Actions, Owner Role yönetimi, Stripe dayanıklılık alanları işaretlenmiş).
 
 Bu plan, sıfırdan kurulum yerine **bu mevcut iskelet üzerinde** kalan boşlukları kapatmaya odaklanır.
@@ -58,9 +58,9 @@ Bu özet **mevcut migration ve api-contract'ta** dokümante edilmiş haldedir; a
 | File Storage | S3 Filesystem driver (prod) / `local` (dev) | `MediaFile` modeli ile metadata |
 | Ödeme | Stripe (`StripePaymentService`) | Payment Intent + webhook |
 | CSV/Excel | League CSV (mevcut `CsvOrderImportParser`) + PhpSpreadsheet (xlsx için ekleme önerilir) | |
-| Test | PHPUnit 12 (backend), Vitest 4 + Vue Test Utils (frontend), Playwright (E2E — eklenecek) | |
-| CI/CD | GitHub Actions (`.github/` mevcut) | pint + phpstan + tests + npm test + build |
-| Lint / Format | Laravel Pint (PHP), ESLint + Prettier (TS/Vue) | |
+| Kontrol | PHP syntax check | Otomatik test yazılmaz; canlı/staging akışı gerçek yüzeyde doğrulanır |
+| CI/CD | GitHub Actions (`.github/` mevcut) | PHP syntax check + npm production build |
+| Lint / Format | Manuel / editör bazlı | CI'da formatter/test koşulmaz |
 | Runtime | Yerel servisler + Laravel serve/Vite | Production'da nginx + php-fpm + managed servisler |
 
 ---
@@ -628,37 +628,19 @@ Aynı SPA içinde role-based router guard ile `/admin/*` rotaları açılır; ay
 
 ---
 
-## 19. Test Stratejisi
+## 19. Kontrol Stratejisi
 
-### 19.1 Backend (PHPUnit 12)
-- **Unit**: servis sınıfları (`MappingRuleMatcher`, `OrderStatusService`, `ProductPricingService`) izolasyon testleri
-- **Feature**: HTTP istek → response (her endpoint için happy + 4xx + auth/permission)
-- **Tenant isolation**: cross-tenant erişim testleri
-- **Migration rollback**: `php artisan migrate:fresh` her test setup'ta
-- Faker + `database/factories/` factory'leri eksik modeller için tamamla
-
-### 19.2 Frontend (Vitest 4)
-- Pinia store unit testleri (`orders.ts`, `mappings.ts`)
-- Component testleri (`MappingDialog`, `OrderWizard` adımları)
-- API mock (msw veya manuel axios mock)
-
-### 19.3 E2E (Playwright — eklenecek)
-- Login → dashboard
-- Yeni sipariş oluşturma uçtan uca
-- CSV import preview → commit → required actions
-- Mapping yaratma → action otomatik kapatma
-- Issue açma → yorum ekleme → kapatma
-
-### 19.4 Yük Testi
-- k6 veya Artillery ile `/api/orders` listesi 100 RPS
-- CSV import 10k satır → süre + memory
+- Projede artık PHPUnit, Vitest, Playwright/E2E veya smoke test yazılmaz.
+- Otomatik kontrol yalnız PHP syntax kontrolüdür.
+- Frontend için canlıya alınacak değişikliklerde production asset build alınır; bu test değil build doğrulamasıdır.
+- İşlevsel doğrulama staging/canlı sunucuda gerçek kullanıcı akışıyla yapılır.
 
 ---
 
 ## 20. CI/CD ve Operasyon
 
 ### 20.1 GitHub Actions (mevcut `.github/`)
-- PR'da: pint check, phpstan, phpunit, vitest, npm build
+- PR/main: PHP syntax check + npm production build
 - Main merge: build artifact → staging deploy (envoy/octane/k8s tercih)
 - Production deploy: tag-based (`v1.x.x`) + manuel onay
 

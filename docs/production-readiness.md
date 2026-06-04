@@ -1,14 +1,14 @@
 # Production Readiness
 
 ## Hedef
-Projeyi bir sonraki adımda doğrudan dağıtıma hazır bir hale getirmek için local geliştirme ve test zinciri aşağıdaki bileşenleri kapsar:
+Projeyi bir sonraki adımda doğrudan dağıtıma hazır bir hale getirmek için local geliştirme ve canlıya yakın doğrulama zinciri aşağıdaki bileşenleri kapsar:
 - macOS/Homebrew üzerinde PHP 8.3 + Node çalışma katmanı
 - PostgreSQL tabanlı kalıcı veritabanı
 - Redis (cache + queue)
 - Queue worker
 - Laravel'in local mail/log sürücüleri
 - Local disk veya production için S3 uyumlu medya depolama
-- CI hattı (backend test, frontend test, build, formatter)
+- CI hattı (PHP syntax kontrolü + frontend production asset build)
 
 ## Yerel geliştirme
 
@@ -30,12 +30,16 @@ Uygulama URL’i: `http://127.0.0.1:8000`
 ## CI
 
 `/.github/workflows/ci.yml` dosyasında:
-- `php artisan test`
-- `./vendor/bin/pint --test`
-- `npm run test:unit`
+- `php scripts/check-php-syntax.php`
 - `npm run build`
 
 iş akışları birlikte çalışır.
+
+## Test Politikası
+
+- Projede artık PHPUnit, Vitest, E2E veya smoke test yazılmaz.
+- Otomatik kontrol kapsamı syntax ile sınırlıdır.
+- Canlıya alınacak işler staging/canlı yüzeyde gerçek akış üzerinden doğrulanır.
 
 ## Security / operasyon notları
 

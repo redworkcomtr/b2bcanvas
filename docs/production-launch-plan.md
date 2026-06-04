@@ -5,12 +5,10 @@
 - Laravel 13.8.0, PHP 8.3.30, Vue 3, Vite 8.
 - Local `.env` is configured for PostgreSQL, Redis queue/cache, SMTP mail, and S3-compatible storage values.
 - Local PostgreSQL role/database `b2bcanvas` was created and all migrations ran successfully.
-- Automated checks passed:
+- Syntax/build checks passed at the time of this report:
   - `php artisan migrate:status`
-  - `php artisan test` (`48` tests)
-  - `npm run test:unit` (`1` test file)
+  - PHP syntax check
   - `npm run build`
-  - `./vendor/bin/pint --test`
 
 ## Critical Launch Blockers
 
@@ -19,7 +17,7 @@
 Status:
 - Fixed in code: `MediaUploadController` now stores uploads on the configured filesystem disk.
 - Fixed in dependencies: `league/flysystem-aws-s3-v3` is installed for S3-compatible storage.
-- Covered by tests: upload metadata and file persistence are verified for the configured `s3` disk.
+- Covered by prior verification: upload metadata and file persistence were checked for the configured `s3` disk before the project switched to syntax-only checks.
 
 Frontend impact:
 - New order artwork upload, product catalog image/template upload, issue attachment, and claim evidence screens call the same upload endpoint and now inherit the configured backend disk.
@@ -29,7 +27,7 @@ Remaining launch verification:
 - Run one real upload against the production bucket or staging bucket.
 - Confirm generated media URLs match the intended bucket/CDN visibility rules.
 
-### P0 - Payment Flow Needs Real Stripe Configuration and E2E
+### P0 - Payment Flow Needs Real Stripe Configuration
 
 Backend state:
 - Payment intent, confirm, and webhook endpoints exist.
@@ -41,8 +39,7 @@ Frontend state:
 
 Launch requirement:
 - Configure `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `VITE_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`.
-- Run a full test-mode card payment and webhook replay before production.
-- Add E2E coverage for successful payment, failed payment, and requires-action payment.
+- Run a full test-mode card payment and webhook replay on the real staging/live target before production.
 
 ### P0 - Production Infrastructure Inputs Are Missing
 
@@ -92,7 +89,7 @@ Gaps:
 - No bulk operations.
 - No carrier/tracking integration.
 - No invoice/statement module.
-- Payment is present but blocked by Stripe config/E2E.
+- Payment is present but blocked by Stripe config and real staging/live payment verification.
 
 Launch decision:
 - Can launch with manual order create/import and manual lifecycle transitions after payment/storage P0 fixes.
@@ -218,7 +215,7 @@ Launch decision:
 2. Decide CSV-only launch, remove XLSX wording, and run a real CSV import -> mapping required -> mapping create -> import row ready -> commit order flow.
 3. Configure Stripe test credentials and run full card payment + webhook replay.
 4. Configure SMTP and run notification queue worker with one real test recipient.
-5. Add minimal smoke E2E for login, order creation with artwork, CSV import commit, mapping auto-resolve, payment happy path, and issue comment attachment.
+5. Manually verify login, order creation with artwork, CSV import commit, mapping auto-resolve, payment happy path, and issue comment attachment on staging/live.
 6. Prepare production `.env` outside Git with `APP_ENV=production`, `APP_DEBUG=false`, `DB_CONNECTION=pgsql`, Redis, SMTP, S3, Stripe, trusted hosts/proxies, and secure session cookie settings.
 7. Run production deploy sequence on staging first:
    - `composer install --no-dev --optimize-autoloader`
@@ -239,7 +236,7 @@ Launch decision:
 - P0: Configure and test Stripe credentials/webhook.
 - P0: Configure and test SMTP + queue worker.
 - P0: Remove XLSX promise from import UI or implement XLSX conversion.
-- P0: Add smoke E2E tests for the real launch journeys.
+- P0: Manually verify the real launch journeys on staging/live.
 - P1: Bulk mapping import/export.
 - P1: Required action remediation for invalid artwork, duplicate order, product unavailable.
 - P1: Production PostgreSQL/Redis CI job.
