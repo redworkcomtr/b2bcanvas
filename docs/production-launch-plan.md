@@ -14,21 +14,20 @@
 
 ## Critical Launch Blockers
 
-### P0 - Storage Upload Is Not Production-Ready
+### P0 - Storage Upload
 
-Backend gap:
-- `MediaUploadController` hardcodes the `public` disk even when `FILESYSTEM_DISK=s3`.
-- Uploaded artwork, product images, templates, claim evidence, and issue attachments will not use S3/MinIO in production.
-- `league/flysystem-aws-s3-v3` is not installed in `vendor`, so the S3 disk cannot be accepted as production-ready yet.
+Status:
+- Fixed in code: `MediaUploadController` now stores uploads on the configured filesystem disk.
+- Fixed in dependencies: `league/flysystem-aws-s3-v3` is installed for S3-compatible storage.
+- Covered by tests: upload metadata and file persistence are verified for the configured `s3` disk.
 
 Frontend impact:
-- New order artwork upload, product catalog image/template upload, issue attachment, and claim evidence screens call the upload endpoint and will appear to work while writing to local public storage.
+- New order artwork upload, product catalog image/template upload, issue attachment, and claim evidence screens call the same upload endpoint and now inherit the configured backend disk.
 
-Required fix:
-- Add the S3 Flysystem adapter dependency if production storage is S3-compatible.
-- Use `config('filesystems.default')` or an explicit media disk setting.
-- Persist disk/path/url consistently in `media_files`.
-- Add upload integration tests for the configured disk.
+Remaining launch verification:
+- Configure real S3/MinIO credentials outside Git.
+- Run one real upload against the production bucket or staging bucket.
+- Confirm generated media URLs match the intended bucket/CDN visibility rules.
 
 ### P0 - Payment Flow Needs Real Stripe Configuration and E2E
 
@@ -236,9 +235,7 @@ Launch decision:
 
 ## Minimal Pre-Launch Fix List
 
-- P0: Change upload disk from hardcoded `public` to configured production disk.
-- P0: Install/verify the S3 Flysystem adapter if S3-compatible storage is used.
-- P0: Verify S3/MinIO upload URL generation and file visibility rules.
+- P0: Verify real S3/MinIO upload URL generation and file visibility rules in staging.
 - P0: Configure and test Stripe credentials/webhook.
 - P0: Configure and test SMTP + queue worker.
 - P0: Remove XLSX promise from import UI or implement XLSX conversion.

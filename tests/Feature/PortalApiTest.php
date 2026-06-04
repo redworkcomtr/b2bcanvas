@@ -777,6 +777,7 @@ class PortalApiTest extends TestCase
 
     public function test_owner_can_create_priced_manual_order_with_artwork(): void
     {
+        config(['filesystems.default' => 'public']);
         Storage::fake('public');
         $this->seed();
         $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
@@ -1170,6 +1171,7 @@ class PortalApiTest extends TestCase
 
     public function test_catalog_media_upload_stores_metadata_and_file(): void
     {
+        config(['filesystems.default' => 'public']);
         Storage::fake('public');
         $this->seed();
         $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
@@ -1182,10 +1184,33 @@ class PortalApiTest extends TestCase
 
         $response->assertCreated()
             ->assertJsonPath('collection', 'product_image')
+            ->assertJsonPath('disk', 'public')
             ->assertJsonPath('mime_type', 'image/png')
             ->assertJsonStructure(['checksum', 'path', 'url', 'scan_state']);
 
         Storage::disk('public')->assertExists($response->json('path'));
+    }
+
+    public function test_media_upload_uses_configured_filesystem_disk(): void
+    {
+        config(['filesystems.default' => 's3']);
+        Storage::fake('s3');
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $this->actingAs($owner);
+
+        $response = $this->postJson('/api/uploads', [
+            'collection' => 'artwork',
+            'file' => UploadedFile::fake()->image('s3-panel.png', 800, 600),
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('collection', 'artwork')
+            ->assertJsonPath('disk', 's3')
+            ->assertJsonPath('mime_type', 'image/png')
+            ->assertJsonStructure(['checksum', 'path', 'url', 'scan_state']);
+
+        Storage::disk('s3')->assertExists($response->json('path'));
     }
 
     public function test_mapping_simulator_returns_ranked_matches_and_conflicts(): void

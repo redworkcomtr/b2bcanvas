@@ -7,6 +7,7 @@ use App\Models\MediaFile;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class MediaUploadController extends Controller
 {
@@ -21,13 +22,19 @@ class MediaUploadController extends Controller
 
         $file = $validated['file'];
         $tenantId = $request->user()->tenant_id;
-        $disk = 'public';
+        $disk = config('filesystems.default', 'public');
         $extension = $file->getClientOriginalExtension() ?: $file->guessExtension() ?: 'bin';
         $path = $file->storeAs(
             'tenants/'.$tenantId.'/'.$validated['collection'],
             (string) Str::uuid().'.'.$extension,
             $disk,
         );
+
+        if (! is_string($path)) {
+            throw ValidationException::withMessages([
+                'file' => ['The uploaded file could not be stored.'],
+            ]);
+        }
 
         $media = MediaFile::query()->create([
             'tenant_id' => $tenantId,
