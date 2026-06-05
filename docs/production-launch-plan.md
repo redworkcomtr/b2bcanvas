@@ -5,7 +5,7 @@
 - Laravel 13.8.0, PHP 8.3.30, Vue 3, Vite 8.
 - Local `.env` is configured for PostgreSQL, Redis queue/cache, SMTP mail, and S3-compatible storage values.
 - Local PostgreSQL role/database `b2bcanvas` was created and all migrations ran successfully.
-- Syntax/build checks passed at the time of this report:
+- Manual checks passed at the time of this report:
   - `php artisan migrate:status`
   - PHP syntax check
   - `npm run build`
@@ -50,7 +50,7 @@ Needed before deploy:
 - SMTP provider credentials and verified sender domain.
 - S3-compatible bucket, access keys, region, endpoint/CDN URL.
 - Queue worker process definition.
-- Redis PHP support in the production runtime. The Dockerfile installs `php-redis`, but host-local PHP did not have Redis support, so local testing currently uses database cache/queue.
+- Redis PHP support in the production runtime. Host-local PHP did not have Redis support, so local testing currently uses database cache/queue.
 - Backup and restore process.
 - Deployment target and restart command.
 

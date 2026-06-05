@@ -8,7 +8,7 @@ Projeyi bir sonraki adımda doğrudan dağıtıma hazır bir hale getirmek için
 - Queue worker
 - Laravel'in local mail/log sürücüleri
 - Local disk veya production için S3 uyumlu medya depolama
-- CI hattı (PHP syntax kontrolü + frontend production asset build)
+- Manuel PHP syntax kontrolü
 
 ## Yerel geliştirme
 
@@ -27,13 +27,15 @@ Uygulama URL’i: `http://127.0.0.1:8000`
 - Üretimde `QUEUE_CONNECTION=redis`, `DB_CONNECTION=pgsql`, `MAIL_MAILER=smtp` ve `FILESYSTEM_DISK=s3` kombinasyonu önerilir.
 - Production için `APP_KEY`, PII odaklı loglama politikası ve mail/SMTP kullanıcıları gerçek değerlere taşınmalı.
 
-## CI
+## Kontrol
 
-`/.github/workflows/ci.yml` dosyasında:
-- `php scripts/check-php-syntax.php`
-- `npm run build`
+Canlıya alınacak değişikliklerde otomatik GitHub workflow kullanılmaz. Minimum zorunlu kontrol:
 
-iş akışları birlikte çalışır.
+```bash
+composer syntax
+```
+
+Frontend asset değişikliği varsa release build'i ayrıca manuel alınır; bu test stratejisi değildir.
 
 ## Test Politikası
 

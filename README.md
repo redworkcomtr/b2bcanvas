@@ -35,7 +35,7 @@ Yerel PostgreSQL ayarları `.env.example` içinde hazır gelir:
 
 - PostgreSQL yerelde Homebrew servisi, production'da managed PostgreSQL olarak çalışır.
 - Queue worker `php artisan queue:listen` veya Supervisor/Horizon ile çalıştırılır.
-- CI pipeline: `/.github/workflows/ci.yml`
+- Otomatik GitHub workflow yoktur; canlıya çıkmadan önce manuel `composer syntax` çalıştırılır.
 
 ---
 

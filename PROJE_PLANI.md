@@ -59,8 +59,8 @@ Bu özet **mevcut migration ve api-contract'ta** dokümante edilmiş haldedir; a
 | Ödeme | Stripe (`StripePaymentService`) | Payment Intent + webhook |
 | CSV/Excel | League CSV (mevcut `CsvOrderImportParser`) + PhpSpreadsheet (xlsx için ekleme önerilir) | |
 | Kontrol | PHP syntax check | Otomatik test yazılmaz; canlı/staging akışı gerçek yüzeyde doğrulanır |
-| CI/CD | GitHub Actions (`.github/` mevcut) | PHP syntax check + npm production build |
-| Lint / Format | Manuel / editör bazlı | CI'da formatter/test koşulmaz |
+| Deploy | Manuel release akışı | GitHub workflow yok; production komutları hedef sunucuda çalıştırılır |
+| Lint / Format | Manuel / editör bazlı | Formatter/test workflow'u koşulmaz |
 | Runtime | Yerel servisler + Laravel serve/Vite | Production'da nginx + php-fpm + managed servisler |
 
 ---
@@ -637,12 +637,12 @@ Aynı SPA içinde role-based router guard ile `/admin/*` rotaları açılır; ay
 
 ---
 
-## 20. CI/CD ve Operasyon
+## 20. Operasyon ve Deploy
 
-### 20.1 GitHub Actions (mevcut `.github/`)
-- PR/main: PHP syntax check + npm production build
-- Main merge: build artifact → staging deploy (envoy/octane/k8s tercih)
-- Production deploy: tag-based (`v1.x.x`) + manuel onay
+### 20.1 Manuel Kontrol ve Deploy
+- Zorunlu kontrol: `composer syntax`
+- Frontend asset değişikliği varsa manuel `npm run build`
+- Production deploy: tag veya commit bazlı manuel onay + hedef sunucuda release komutları
 
 ### 20.2 Production Stack (önerilen)
 - Web: nginx + php-fpm + Octane (Swoole/RoadRunner) opsiyonel performans
