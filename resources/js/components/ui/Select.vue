@@ -13,12 +13,12 @@ const emit = defineEmits<{
 </script>
 
 <template>
-    <label class="grid gap-1.5 text-sm font-medium text-slate-700">
-        <span v-if="label">{{ label }} <span v-if="required" class="text-red-600">*</span></span>
+    <label class="grid min-w-0 gap-1.5 text-[14px] font-medium text-zinc-700">
+        <span v-if="label" class="text-[12px] font-semibold text-zinc-600">{{ label }} <span v-if="required" class="text-red-600">*</span></span>
         <select
             :class="[
-                'focus-ring h-10 rounded-md border bg-white px-3 text-sm text-slate-900 shadow-sm',
-                error ? 'border-red-300' : 'border-slate-300',
+                'focus-ring h-10 min-w-0 rounded-md border bg-white px-3 text-[14px] font-medium text-zinc-950 shadow-[inset_0_1px_1px_rgba(15,23,42,0.03)]',
+                error ? 'border-red-300' : 'border-zinc-300/80',
             ]"
             :value="modelValue ?? ''"
             @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)"
@@ -26,6 +26,6 @@ const emit = defineEmits<{
             <slot />
         </select>
         <span v-if="error" class="text-xs font-medium text-red-600">{{ error }}</span>
-        <span v-else-if="help" class="text-xs font-normal text-slate-500">{{ help }}</span>
+        <span v-else-if="help" class="text-xs font-normal text-zinc-500">{{ help }}</span>
     </label>
 </template>

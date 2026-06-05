@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\PortalController;
 use App\Http\Controllers\Api\ProductCatalogController;
 use App\Http\Controllers\Api\ProductMappingController;
 use App\Http\Controllers\Api\RequiredActionController;
+use App\Http\Controllers\Api\TenantController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Middleware\EnsureActiveTenant;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
@@ -28,6 +29,7 @@ Route::prefix('api')->middleware('throttle:120,1')->group(function () {
 
         Route::get('/portal', PortalController::class);
         Route::get('/workspace', PortalController::class);
+        Route::patch('/tenant', [TenantController::class, 'update']);
         Route::get('/orders', [OrderController::class, 'index']);
         Route::get('/orders/export', [OrderController::class, 'export']);
         Route::get('/orders/saved-views', [OrderController::class, 'savedViews']);

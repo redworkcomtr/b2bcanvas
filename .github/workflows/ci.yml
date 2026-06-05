@@ -17,8 +17,17 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
-          extensions: pdo, pdo_sqlite, pdo_pgsql, zip
+          extensions: pdo, pdo_pgsql, zip
           coverage: none
+
+      - name: Setup PostgreSQL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql postgresql-contrib
+          sudo service postgresql start
+          sudo -u postgres psql -c "CREATE ROLE b2bcanvas LOGIN PASSWORD 'b2bcanvas';"
+          sudo -u postgres createdb -O b2bcanvas b2bcanvas
+          sudo -u postgres createdb -O b2bcanvas b2bcanvas_test
 
       - name: Install composer deps
         run: composer install --no-interaction --prefer-dist --no-progress

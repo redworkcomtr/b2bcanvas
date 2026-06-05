@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Events\NotificationRequested;
 use App\Http\Controllers\Controller;
+use App\Jobs\ProcessImportRowsJob;
 use App\Models\AuditLog;
 use App\Models\Import;
 use App\Models\ImportRow;
@@ -18,6 +19,8 @@ use App\Services\CsvOrderImportParser;
 use App\Services\MappingRuleMatcher;
 use App\Services\OrderStatusService;
 use App\Services\ProductPricingService;
+use App\Services\XlsxOrderImportParser;
+use App\Support\NotificationEventCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -387,20 +390,24 @@ class OrderController extends Controller
         ]);
     }
 
-    public function importPreview(Request $request, CsvOrderImportParser $parser, MappingRuleMatcher $matcher): JsonResponse
+    public function importPreview(Request $request, CsvOrderImportParser $parser, XlsxOrderImportParser $xlsxParser, MappingRuleMatcher $matcher): JsonResponse
     {
         Gate::authorize('create', Order::class);
 
         $validated = $request->validate([
             'csv' => ['required_without:file', 'nullable', 'string'],
-            'file' => ['nullable', 'file', 'max:20480', 'mimetypes:text/csv,text/plain'],
+            'file' => ['nullable', 'file', 'max:20480', 'mimetypes:text/csv,text/plain,application/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/zip,application/octet-stream'],
             'filename' => ['nullable', 'string', 'max:180'],
         ]);
         $uploadedFile = $request->file('file');
         $contents = $uploadedFile
             ? file_get_contents($uploadedFile->getRealPath())
             : $validated['csv'];
-        $parsed = $parser->parse((string) $contents);
+        $filename = $validated['filename'] ?? ($uploadedFile?->getClientOriginalName() ?? 'pasted-import.csv');
+        $extension = mb_strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        $parsed = $extension === 'xlsx'
+            ? $xlsxParser->parse((string) $contents)
+            : $parser->parse((string) $contents);
         $tenantId = $request->user()->tenant_id;
         $mappings = ProductMapping::query()
             ->forTenant($tenantId)
@@ -412,29 +419,6 @@ class OrderController extends Controller
             $rowErrors = $row['status'] === 'invalid' ? ['Row contains missing or invalid required fields.'] : [];
             if (($payload['order_number'] ?? null) && Order::query()->forTenant($tenantId)->where('order_number', $payload['order_number'])->exists()) {
                 $rowErrors[] = 'order_number already exists.';
-                $this->createOrRefreshImportRequiredAction(
-                    tenantId: $tenantId,
-                    orderId: null,
-                    type: 'duplicate_order',
-                    title: 'Duplicate order number in import',
-                    description: 'The order number from this import row already exists in the system.',
-                    payload: [
-                        'order_number' => (string) $payload['order_number'],
-                        'row_number' => (int) $row['row_number'],
-                    ],
-                );
-                NotificationRequested::dispatch(
-                    'ORDER_VALIDATION_FAILED',
-                    $tenantId,
-                    [
-                        'order_number' => $payload['order_number'],
-                        'row_number' => $row['row_number'],
-                        'import_id' => null,
-                        'reason' => 'Order number already exists in the system.',
-                        'error_summary' => 'Duplicate order number found during import preview.',
-                    ],
-                    $request->user(),
-                );
             }
             $match = $matcher->bestMatch([
                 'sku' => $payload['item_sku'] ?? null,
@@ -444,16 +428,6 @@ class OrderController extends Controller
 
             if (! $match) {
                 $rowErrors[] = 'No product mapping matched this item.';
-                RequiredAction::query()->firstOrCreate([
-                    'tenant_id' => $tenantId,
-                    'order_id' => null,
-                    'type' => 'product_mapping_required',
-                    'title' => 'Product code mapping is required',
-                    'description' => 'No product mapping matched imported item "'.($payload['item_name'] ?? 'Unknown item').'".',
-                ], [
-                    'payload' => $payload,
-                    'last_activity_at' => now(),
-                ]);
             }
 
             return [
@@ -467,7 +441,7 @@ class OrderController extends Controller
 
         $import = Import::query()->create([
             'tenant_id' => $tenantId,
-            'filename' => $validated['filename'] ?? ($uploadedFile?->getClientOriginalName() ?? 'pasted-import.csv'),
+            'filename' => $filename,
             'status' => 'preview',
             'total_rows' => $rows->count(),
             'valid_rows' => $rows->where('status', 'ready')->count(),
@@ -492,6 +466,50 @@ class OrderController extends Controller
             ]);
         }
 
+        foreach ($rows as $row) {
+            $errors = $row['errors'];
+            $payload = [
+                ...$row['payload'],
+                'import_id' => $import->id,
+                'row_number' => $row['row_number'],
+            ];
+
+            if (in_array('order_number already exists.', $errors, true)) {
+                $this->createOrRefreshImportRequiredAction(
+                    tenantId: $tenantId,
+                    orderId: null,
+                    type: 'duplicate_order',
+                    title: 'Duplicate order number in import',
+                    description: 'The order number from this import row already exists in the system.',
+                    payload: $payload,
+                );
+
+                NotificationRequested::dispatch(
+                    NotificationEventCatalog::ORDER_VALIDATION_FAILED,
+                    $tenantId,
+                    [
+                        'order_number' => $row['payload']['order_number'] ?? null,
+                        'row_number' => $row['row_number'],
+                        'import_id' => $import->id,
+                        'reason' => 'Order number already exists in the system.',
+                        'error_summary' => 'Duplicate order number found during import preview.',
+                    ],
+                    $request->user(),
+                );
+            }
+
+            if (in_array('No product mapping matched this item.', $errors, true)) {
+                $this->createOrRefreshImportRequiredAction(
+                    tenantId: $tenantId,
+                    orderId: null,
+                    type: 'product_mapping_required',
+                    title: 'Product code mapping is required',
+                    description: 'No product mapping matched imported item "'.($row['payload']['item_name'] ?? 'Unknown item').'".',
+                    payload: $payload,
+                );
+            }
+        }
+
         return response()->json([
             'import_id' => $import->id,
             'headers' => $parsed['headers'],
@@ -505,121 +523,18 @@ class OrderController extends Controller
         ]);
     }
 
-    public function commitImport(Request $request, Import $import, ProductPricingService $pricingService): JsonResponse
+    public function commitImport(Request $request, Import $import): JsonResponse
     {
         Gate::authorize('create', Order::class);
         abort_unless($import->tenant_id === $request->user()->tenant_id, 404);
 
-        $created = 0;
-        $skipped = 0;
-
-        $import->load('rows');
-        foreach ($import->rows->where('status', 'ready') as $row) {
-            $payload = $row->payload;
-            if (Order::query()->forTenant($import->tenant_id)->where('order_number', $payload['order_number'])->exists()) {
-                $row->update([
-                    'status' => 'needs_action',
-                    'errors' => [...($row->errors ?? []), 'order_number already exists.'],
-                ]);
-
-                $actionPayload = [
-                    'order_number' => (string) $payload['order_number'],
-                    'import_id' => $import->id,
-                    'row_number' => $row->row_number,
-                    'item_name' => (string) ($payload['item_name'] ?? ''),
-                    'item_sku' => (string) ($payload['item_sku'] ?? ''),
-                ];
-
-                $this->createOrRefreshImportRequiredAction(
-                    tenantId: $import->tenant_id,
-                    orderId: null,
-                    type: 'duplicate_order',
-                    title: 'Duplicate order in import',
-                    description: 'An import row cannot be created because this order number already exists.',
-                    payload: $actionPayload,
-                );
-
-                NotificationRequested::dispatch(
-                    'ORDER_VALIDATION_FAILED',
-                    $import->tenant_id,
-                    [
-                        'order_number' => $payload['order_number'],
-                        'row_number' => $row->row_number,
-                        'import_id' => $import->id,
-                        'reason' => 'Order number already exists in the system.',
-                        'error_summary' => 'Duplicate order number found during import commit.',
-                    ],
-                    $request->user(),
-                );
-
-                $skipped++;
-
-                continue;
-            }
-
-            $variant = ProductVariant::query()->with('productType')->findOrFail($payload['matched_product_variant_id']);
-            $quantity = (int) ($payload['quantity'] ?? 1);
-            $price = $pricingService->priceItem($variant, $quantity, []);
-
-            $order = Order::query()->create([
-                'uuid' => (string) Str::uuid(),
-                'tenant_id' => $import->tenant_id,
-                'order_number' => $payload['order_number'],
-                'status' => 'verified',
-                'payment_status' => 'unpaid',
-                'customer_name' => $payload['customer_name'],
-                'shipping_service' => $payload['shipping_service'] ?? 'Standard Ground',
-                'shipping_address' => [
-                    'line1' => $payload['address_line_1'],
-                    'city' => $payload['city'],
-                    'state' => $payload['state'] ?? null,
-                    'postal_code' => $payload['postal_code'],
-                    'country' => $payload['country'],
-                ],
-                'order_date' => now(),
-                'submitted_at' => now(),
-                'totals' => ['subtotal_cents' => $price['subtotal_cents'], 'currency' => 'USD'],
-            ]);
-            $order->items()->create([
-                'product_variant_id' => $variant->id,
-                'item_name' => $payload['item_name'],
-                'item_sku' => $payload['item_sku'] ?? null,
-                'quantity' => $quantity,
-                'product_code' => $variant->sku,
-                'product_type' => $variant->productType?->name,
-                'panel_summary' => implode(', ', $variant->panel_sizes ?? []),
-                'design_images' => [],
-                'options' => ['import_id' => $import->id, 'subtotal_cents' => $price['subtotal_cents']],
-            ]);
-            OrderStatusEvent::query()->create([
-                'tenant_id' => $import->tenant_id,
-                'order_id' => $order->id,
-                'user_id' => $request->user()->id,
-                'from_status' => null,
-                'to_status' => 'verified',
-                'note' => 'Order created from import batch.',
-                'metadata' => ['import_id' => $import->id, 'row_number' => $row->row_number],
-            ]);
-            $this->audit($request, $order, 'order.import_created', ['import_id' => $import->id, 'row_number' => $row->row_number]);
-            $row->update(['status' => 'committed']);
-            $created++;
-        }
-
-        $import->update([
-            'status' => $import->rows()->where('status', 'needs_action')->exists() ? 'partial' : 'committed',
-            'valid_rows' => $import->rows()->whereIn('status', ['ready', 'committed'])->count(),
-            'invalid_rows' => $import->rows()->where('status', 'needs_action')->count(),
-            'summary' => [
-                ...($import->summary ?? []),
-                'created_orders' => $created,
-                'skipped_rows' => $skipped,
-            ],
-        ]);
+        $result = app()->call([new ProcessImportRowsJob($import->id, $request->user()->id), 'handle']);
 
         return response()->json([
             'import' => $import->fresh('rows'),
-            'created_orders' => $created,
-            'skipped_rows' => $skipped,
+            'created_orders' => $result['created_orders'],
+            'skipped_rows' => $result['skipped_rows'],
+            'failed_rows' => $result['failed_rows'],
         ]);
     }
 

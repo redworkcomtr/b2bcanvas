@@ -21,7 +21,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick));
         </div>
         <div
             v-if="open"
-            class="absolute right-0 z-40 mt-2 min-w-64 overflow-hidden rounded-lg border border-slate-200 bg-white p-1 shadow-xl shadow-slate-900/10"
+            class="absolute right-0 z-40 mt-2 min-w-64 overflow-hidden rounded-lg border border-zinc-200/80 bg-white p-1 shadow-[0_14px_36px_-22px_rgba(15,23,42,0.45)]"
         >
             <slot :close="() => (open = false)" />
         </div>

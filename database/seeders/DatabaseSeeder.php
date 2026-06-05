@@ -15,6 +15,7 @@ use App\Models\SavedView;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Models\UserInvite;
+use App\Support\NotificationEventCatalog;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
@@ -33,18 +34,12 @@ class DatabaseSeeder extends Seeder
             [
                 'name' => 'Atelier Canvas Supply',
                 'support_email' => 'support@ateliercanvas.test',
-                'settings' => ['currency' => 'USD', 'timezone' => 'America/New_York'],
+                'settings' => ['currency' => 'USD', 'timezone' => 'America/New_York', 'default_shipping_service' => 'Standard Ground'],
             ],
         );
 
         $seedSubscriptions = function (User $user) use ($tenant): void {
-            foreach ([
-                'ORDER_SHIPPED',
-                'ORDER_ACTION_NEEDED',
-                'ORDER_ISSUE_COMMENT_ADDED',
-                'ORDER_VALIDATION_FAILED',
-                'ORDER_PAYMENT_COMPLETED',
-            ] as $index => $event) {
+            foreach (NotificationEventCatalog::keys() as $index => $event) {
                 NotificationSubscription::query()->create([
                     'user_id' => $user->id,
                     'event' => $event,

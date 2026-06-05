@@ -7,6 +7,7 @@ use App\Models\AuditLog;
 use App\Models\Order;
 use App\Models\OrderStatusEvent;
 use App\Models\User;
+use App\Support\NotificationEventCatalog;
 use Illuminate\Validation\ValidationException;
 
 class OrderStatusService
@@ -113,9 +114,9 @@ class OrderStatusService
     private function dispatchNotification(Order $order, ?User $user, string $toStatus, array $metadata, ?string $note = null, string $fromStatus = 'draft'): void
     {
         $eventMap = match ($toStatus) {
-            'shipped' => 'ORDER_SHIPPED',
-            'action_needed' => 'ORDER_ACTION_NEEDED',
-            'validation_failed' => 'ORDER_VALIDATION_FAILED',
+            'shipped' => NotificationEventCatalog::ORDER_SHIPPED,
+            'action_needed' => NotificationEventCatalog::ORDER_ACTION_NEEDED,
+            'validation_failed' => NotificationEventCatalog::ORDER_VALIDATION_FAILED,
             default => null,
         };
 

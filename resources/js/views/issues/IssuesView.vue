@@ -19,7 +19,7 @@ import type { Issue, MediaFile, RequiredAction } from '@/types/portal';
 
 const props = defineProps<{ mode: 'tickets' | 'claims' | 'actions' }>();
 const store = usePortalStore();
-const status = ref('all');
+const status = ref(props.mode === 'actions' ? 'open' : 'all');
 const orderNumber = ref('');
 const selectedIssueId = ref<number | null>(null);
 const issueComment = ref('');
@@ -31,6 +31,9 @@ const selectedActionId = ref<number | null>(null);
 const actionComment = ref('');
 const resolutionNote = ref('');
 const resolutionVariantId = ref('');
+const correctedArtworkFiles = ref<MediaFile[]>([]);
+const duplicateDecision = ref<'skip' | 'process_with_new_number' | 'cancel_existing'>('skip');
+const duplicateReplacementOrderNumber = ref('');
 const actionError = ref('');
 const actionBusy = ref(false);
 const claimDecision = ref<'credit' | 'refund' | 'reprint' | 'reject'>('credit');
@@ -155,6 +158,18 @@ const canResolveSelected = computed(() => {
         return Boolean(addressResolution.line1 && addressResolution.city && addressResolution.country);
     }
 
+    if (selectedAction.value.type === 'invalid_artwork') {
+        return correctedArtworkFiles.value.length > 0;
+    }
+
+    if (selectedAction.value.type === 'duplicate_order') {
+        return duplicateDecision.value !== 'process_with_new_number' || Boolean(duplicateReplacementOrderNumber.value.trim());
+    }
+
+    if (selectedAction.value.type === 'product_unavailable') {
+        return Boolean(resolutionVariantId.value);
+    }
+
     return true;
 });
 
@@ -168,7 +183,7 @@ const claimAmountRequired = computed(() => ['credit', 'refund'].includes(claimDe
 const claimAmountNumeric = computed(() => Number(claimAmount.value));
 
 watch(() => props.mode, () => {
-    status.value = 'all';
+    status.value = props.mode === 'actions' ? 'open' : 'all';
     selectedIssueId.value = null;
     selectedActionId.value = null;
     form.request_type = props.mode === 'claims' ? 'Credit' : 'Support';
@@ -197,6 +212,9 @@ watch(() => selectedAction.value?.id, () => {
     resolutionNote.value = '';
     actionComment.value = '';
     resolutionVariantId.value = String(selectedAction.value?.resolution_payload?.product_variant_id ?? selectedAction.value?.payload?.resolved_product_variant_id ?? '');
+    correctedArtworkFiles.value = [];
+    duplicateDecision.value = 'skip';
+    duplicateReplacementOrderNumber.value = '';
     hydrateAddress(selectedAction.value);
 }, { immediate: true });
 
@@ -455,6 +473,17 @@ async function addActionComment() {
     });
 }
 
+async function uploadActionArtwork(file: File) {
+    await runActionOperation(async () => {
+        const media = await store.uploadFile(file, 'artwork');
+        correctedArtworkFiles.value = [...correctedArtworkFiles.value, media];
+    });
+}
+
+function removeActionArtwork(file: MediaFile) {
+    correctedArtworkFiles.value = correctedArtworkFiles.value.filter((item) => item.id !== file.id);
+}
+
 async function resolveAction() {
     const action = selectedAction.value;
     if (!action || !canResolveSelected.value) {
@@ -479,6 +508,21 @@ async function resolveAction() {
         };
     }
 
+    if (action.type === 'invalid_artwork') {
+        resolution.artwork_media_file_id = correctedArtworkFiles.value[0]?.id;
+    }
+
+    if (action.type === 'duplicate_order') {
+        resolution.decision = duplicateDecision.value;
+        if (duplicateDecision.value === 'process_with_new_number') {
+            resolution.replacement_order_number = duplicateReplacementOrderNumber.value.trim();
+        }
+    }
+
+    if (action.type === 'product_unavailable') {
+        resolution.product_variant_id = Number(resolutionVariantId.value);
+    }
+
     await runActionOperation(async () => {
         const updated = await store.resolveRequiredAction(action, {
             resolution,
@@ -486,6 +530,7 @@ async function resolveAction() {
         });
         selectedActionId.value = updated.id;
         resolutionNote.value = '';
+        correctedArtworkFiles.value = [];
     });
 }
 
@@ -522,26 +567,26 @@ async function reopenAction() {
 </script>
 
 <template>
-    <div class="grid gap-5">
-        <div class="flex flex-col justify-between gap-4 md:flex-row md:items-end">
-            <div>
-                <h2 class="text-2xl font-bold text-slate-950">{{ title }}</h2>
-                <p class="text-slate-600">Track order-linked conversations, claims, and production blockers.</p>
+    <div class="app-page">
+        <div class="flex flex-col justify-between gap-3 md:flex-row md:items-end">
+            <div class="page-heading">
+                <h2>{{ title }}</h2>
+                <p>{{ props.mode === 'actions' ? actionRows.length : issueRows.length }} records · {{ status === 'all' ? 'All statuses' : humanize(status) }}</p>
             </div>
         </div>
 
-        <div v-if="props.mode === 'actions'" class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_430px]">
+        <div v-if="props.mode === 'actions'" class="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_430px]">
             <Card>
                 <div class="mb-4 grid gap-3 md:grid-cols-[auto_1fr] md:items-end">
                     <div class="grid gap-1.5">
-                        <span class="text-sm font-medium text-slate-700">Status</span>
+                        <span class="text-sm font-medium text-[#4c4546]">Status</span>
                         <Tabs v-model="status" :tabs="statusTabs" />
                     </div>
                     <Input v-model="orderNumber" label="Order Number" placeholder="Enter order number" />
                 </div>
 
                 <DataTable min-width="980px">
-                    <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+                    <thead>
                         <tr>
                             <th class="px-4 py-3">Type</th>
                             <th class="px-4 py-3">Status</th>
@@ -551,25 +596,25 @@ async function reopenAction() {
                             <th class="px-4 py-3">Last Activity</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-200 bg-white">
+                    <tbody class="divide-y divide-zinc-100">
                         <tr
                             v-for="action in actionRows"
                             :key="action.id"
-                            class="cursor-pointer hover:bg-slate-50"
-                            :class="selectedAction?.id === action.id ? 'bg-teal-50/70' : ''"
+                            class="cursor-pointer"
+                            :class="selectedAction?.id === action.id ? 'bg-zinc-200/60 shadow-[inset_3px_0_0_#18181b]' : ''"
                             tabindex="0"
                             @click="selectAction(action)"
                             @keydown.enter="selectAction(action)"
                         >
                             <td class="px-4 py-3">
-                                <div class="font-semibold text-slate-950">{{ actionTypeLabel(action.type) }}</div>
-                                <div class="text-xs text-slate-500">#{{ action.id }}</div>
+                                <div class="font-semibold text-[#18181b]">{{ actionTypeLabel(action.type) }}</div>
+                                <div class="text-xs text-[#71717a]">#{{ action.id }}</div>
                             </td>
                             <td class="px-4 py-3"><Badge :tone="statusTone(action.status)">{{ humanize(action.status) }}</Badge></td>
                             <td class="px-4 py-3"><Badge :tone="action.priority === 'urgent' ? 'danger' : action.priority === 'high' ? 'warning' : 'neutral'">{{ action.priority }}</Badge></td>
-                            <td class="px-4 py-3 font-medium text-slate-700">{{ action.order?.order_number ?? 'Import queue' }}</td>
-                            <td class="max-w-[360px] px-4 py-3 text-slate-600">{{ action.description }}</td>
-                            <td class="px-4 py-3 text-slate-600">{{ dateLabel(action.last_activity_at) }}</td>
+                            <td class="px-4 py-3 font-medium text-[#4c4546]">{{ action.order?.order_number ?? 'Import queue' }}</td>
+                            <td class="max-w-[360px] px-4 py-3 text-[#4c4546]">{{ action.description }}</td>
+                            <td class="px-4 py-3 text-[#4c4546]">{{ dateLabel(action.last_activity_at) }}</td>
                         </tr>
                     </tbody>
                 </DataTable>
@@ -590,18 +635,18 @@ async function reopenAction() {
                                 <Badge :tone="statusTone(selectedAction.status)">{{ humanize(selectedAction.status) }}</Badge>
                                 <Badge :tone="selectedAction.priority === 'urgent' ? 'danger' : selectedAction.priority === 'high' ? 'warning' : 'neutral'">{{ selectedAction.priority }}</Badge>
                             </div>
-                            <h3 class="text-xl font-bold text-slate-950">{{ selectedAction.title }}</h3>
-                            <p class="mt-1 text-sm text-slate-600">{{ actionTypeCaption(selectedAction) }}</p>
+                            <h3 class="text-xl font-semibold text-[#18181b]">{{ selectedAction.title }}</h3>
+                            <p class="mt-1 text-sm text-[#4c4546]">{{ actionTypeCaption(selectedAction) }}</p>
                         </div>
                         <AlertTriangle class="h-6 w-6 shrink-0 text-amber-600" />
                     </div>
 
-                    <div class="rounded-md border border-slate-200 bg-slate-50 p-4">
-                        <p class="text-sm font-semibold text-slate-900">{{ selectedAction.description }}</p>
+                    <div class="rounded-lg border border-zinc-200 bg-white p-4">
+                        <p class="text-sm font-semibold text-[#18181b]">{{ selectedAction.description }}</p>
                         <div class="mt-3 grid gap-2 sm:grid-cols-2">
-                            <div v-for="[key, value] in selectedPayload" :key="key" class="min-w-0 rounded-md border border-slate-200 bg-white px-3 py-2">
-                                <div class="text-[11px] font-semibold uppercase text-slate-500">{{ humanize(key) }}</div>
-                                <div class="truncate text-sm font-medium text-slate-800">{{ payloadText(value) }}</div>
+                            <div v-for="[key, value] in selectedPayload" :key="key" class="min-w-0 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
+                                <div class="text-[11px] font-semibold uppercase text-[#71717a]">{{ humanize(key) }}</div>
+                                <div class="truncate text-sm font-medium text-[#18181b]">{{ payloadText(value) }}</div>
                             </div>
                         </div>
                     </div>
@@ -632,11 +677,51 @@ async function reopenAction() {
                             <Textarea v-model="resolutionNote" label="Resolution note" placeholder="Address verification details" :rows="3" />
                         </div>
 
+                        <div v-else-if="selectedAction.type === 'invalid_artwork'" class="grid gap-3">
+                            <FileDropzone label="Corrected artwork" description="Upload the replacement design or print-ready file." accept="image/*,.pdf" @selected="uploadActionArtwork" />
+                            <div v-if="correctedArtworkFiles.length" class="grid gap-2">
+                                <div v-for="file in correctedArtworkFiles" :key="file.id" class="flex items-center justify-between gap-3 rounded-2xl bg-white px-3 py-2">
+                                    <span class="min-w-0 truncate text-sm font-medium text-[#4c4546]">
+                                        <Paperclip class="mr-1 inline h-4 w-4 text-[#71717a]" />
+                                        {{ file.original_name }}
+                                    </span>
+                                    <Button size="sm" variant="ghost" @click="removeActionArtwork(file)">Remove</Button>
+                                </div>
+                            </div>
+                            <Textarea v-model="resolutionNote" label="Resolution note" placeholder="Document what changed in the corrected artwork" :rows="3" />
+                        </div>
+
+                        <div v-else-if="selectedAction.type === 'duplicate_order'" class="grid gap-3">
+                            <Select v-model="duplicateDecision" label="Duplicate decision" required>
+                                <option value="skip">Skip this import row</option>
+                                <option value="process_with_new_number">Process with a new order number</option>
+                                <option value="cancel_existing">Cancel existing order and skip row</option>
+                            </Select>
+                            <Input
+                                v-if="duplicateDecision === 'process_with_new_number'"
+                                v-model="duplicateReplacementOrderNumber"
+                                label="Replacement order number"
+                                required
+                                placeholder="WEB-9002-R1"
+                            />
+                            <Textarea v-model="resolutionNote" label="Resolution note" placeholder="Document the duplicate review decision" :rows="3" />
+                        </div>
+
+                        <div v-else-if="selectedAction.type === 'product_unavailable'" class="grid gap-3">
+                            <Select v-model="resolutionVariantId" label="Alternate production SKU" required>
+                                <option value="">Select alternate variant</option>
+                                <option v-for="variant in store.variants" :key="variant.id" :value="variant.id">
+                                    {{ variant.sku }} · {{ variant.name }}
+                                </option>
+                            </Select>
+                            <Textarea v-model="resolutionNote" label="Resolution note" placeholder="Document substitution approval or production note" :rows="3" />
+                        </div>
+
                         <div v-else class="grid gap-3">
                             <Textarea v-model="resolutionNote" label="Resolution note" placeholder="Document the decision before resolving or escalating" :rows="5" />
                         </div>
 
-                        <div v-if="actionError" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+                        <div v-if="actionError" class="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
                             {{ actionError }}
                         </div>
 
@@ -656,20 +741,20 @@ async function reopenAction() {
                         </div>
                     </div>
 
-                    <div class="border-t border-slate-200 pt-4">
+                    <div class="border-t border-zinc-200/70 pt-4">
                         <div class="mb-3 flex items-center justify-between gap-3">
-                            <h4 class="font-semibold text-slate-950">Activity</h4>
-                            <span class="text-xs font-medium text-slate-500">{{ selectedComments.length }} comments</span>
+                            <h4 class="font-semibold text-[#18181b]">Activity</h4>
+                            <span class="text-xs font-medium text-[#71717a]">{{ selectedComments.length }} comments</span>
                         </div>
                         <div class="grid max-h-72 gap-3 overflow-auto pr-1">
-                            <div v-for="comment in selectedComments" :key="comment.id" class="rounded-md border border-slate-200 bg-white p-3">
+                            <div v-for="comment in selectedComments" :key="comment.id" class="rounded-2xl bg-white p-3">
                                 <div class="mb-1 flex items-center justify-between gap-3">
-                                    <span class="text-sm font-semibold text-slate-900">{{ comment.user?.name ?? 'System' }}</span>
-                                    <span class="text-xs text-slate-500">{{ dateLabel(comment.created_at) }}</span>
+                                    <span class="text-sm font-semibold text-[#18181b]">{{ comment.user?.name ?? 'System' }}</span>
+                                    <span class="text-xs text-[#71717a]">{{ dateLabel(comment.created_at) }}</span>
                                 </div>
-                                <p class="whitespace-pre-line text-sm text-slate-600">{{ comment.body }}</p>
+                                <p class="whitespace-pre-line text-sm text-[#4c4546]">{{ comment.body }}</p>
                             </div>
-                            <p v-if="selectedComments.length === 0" class="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-500">
+                            <p v-if="selectedComments.length === 0" class="rounded-2xl bg-white p-4 text-sm text-[#71717a]">
                                 No comments yet.
                             </p>
                         </div>
@@ -692,18 +777,18 @@ async function reopenAction() {
             </Card>
         </div>
 
-        <div v-else class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_430px]">
+        <div v-else class="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_430px]">
             <Card>
                 <div class="mb-4 grid gap-3 md:grid-cols-[auto_1fr] md:items-end">
                     <div class="grid gap-1.5">
-                        <span class="text-sm font-medium text-slate-700">Status</span>
+                        <span class="text-sm font-medium text-[#4c4546]">Status</span>
                         <Tabs v-model="status" :tabs="statusTabs" />
                     </div>
                     <Input v-model="orderNumber" label="Order Number" placeholder="Enter order number" />
                 </div>
 
                 <DataTable min-width="900px">
-                    <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+                    <thead>
                         <tr>
                             <th class="px-4 py-3">Date</th>
                             <th class="px-4 py-3">Status</th>
@@ -714,12 +799,12 @@ async function reopenAction() {
                             <th class="px-4 py-3">Notes</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-200 bg-white">
+                    <tbody class="divide-y divide-zinc-100">
                         <tr
                             v-for="issue in issueRows"
                             :key="issue.id"
-                            class="cursor-pointer hover:bg-slate-50"
-                            :class="selectedIssue?.id === issue.id ? 'bg-teal-50/70' : ''"
+                            class="cursor-pointer"
+                            :class="selectedIssue?.id === issue.id ? 'bg-zinc-200/60 shadow-[inset_3px_0_0_#18181b]' : ''"
                             tabindex="0"
                             @click="selectIssue(issue)"
                             @keydown.enter="selectIssue(issue)"
@@ -727,7 +812,7 @@ async function reopenAction() {
                             <td class="px-4 py-3">{{ dateLabel(issue.created_at) }}</td>
                             <td class="px-4 py-3"><Badge :tone="statusTone(issue.status)">{{ humanize(issue.status) }}</Badge></td>
                             <td class="px-4 py-3"><Badge :tone="priorityTone(issue.priority)">{{ issue.priority }}</Badge></td>
-                            <td class="px-4 py-3 text-slate-600">{{ assigneeName(issue) }}</td>
+                            <td class="px-4 py-3 text-[#4c4546]">{{ assigneeName(issue) }}</td>
                             <td class="px-4 py-3">{{ issue.order?.order_number ?? '-' }}</td>
                             <td class="px-4 py-3">{{ issue.description }}</td>
                             <td class="px-4 py-3">{{ issue.total_notes_count }} ({{ issue.unread_notes_count }} new)</td>
@@ -753,13 +838,13 @@ async function reopenAction() {
                                     <Badge :tone="priorityTone(selectedIssue.priority)">{{ selectedIssue.priority }}</Badge>
                                     <Badge v-if="selectedIssue.unread_notes_count" tone="info">{{ selectedIssue.unread_notes_count }} unread</Badge>
                                 </div>
-                                <h3 class="text-xl font-bold text-slate-950">{{ props.mode === 'tickets' ? 'Ticket' : 'Claim' }} #{{ selectedIssue.id }}</h3>
-                                <p class="mt-1 text-sm text-slate-600">{{ selectedIssue.description }}</p>
+                                <h3 class="text-xl font-semibold text-[#18181b]">{{ props.mode === 'tickets' ? 'Ticket' : 'Claim' }} #{{ selectedIssue.id }}</h3>
+                                <p class="mt-1 text-sm text-[#4c4546]">{{ selectedIssue.description }}</p>
                             </div>
-                            <MessageSquarePlus class="h-6 w-6 shrink-0 text-teal-700" />
+                            <MessageSquarePlus class="h-6 w-6 shrink-0 text-[#18181b]" />
                         </div>
 
-                        <div class="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-4">
+                        <div class="grid gap-3 rounded-2xl bg-white p-4">
                             <div class="grid gap-3 sm:grid-cols-2">
                                 <Select v-model="issueUpdate.status" label="Status">
                                     <option value="open">Open</option>
@@ -779,15 +864,15 @@ async function reopenAction() {
                                 <option value="">Unassigned</option>
                                 <option v-for="user in supportUsers" :key="user.id" :value="user.id">{{ user.name }} · {{ user.role }}</option>
                             </Select>
-                            <div v-if="selectedIssue.order" class="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
-                                <span class="font-semibold text-slate-700">Linked order</span>
-                                <RouterLink :to="`/orders/${selectedIssue.order.uuid}`" class="ml-2 font-bold text-teal-700">{{ selectedIssue.order.order_number }}</RouterLink>
+                            <div v-if="selectedIssue.order" class="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                                <span class="font-semibold text-[#4c4546]">Linked order</span>
+                                <RouterLink :to="`/orders/${selectedIssue.order.uuid}`" class="ml-2 font-bold text-[#18181b]">{{ selectedIssue.order.order_number }}</RouterLink>
                             </div>
-                        <div v-if="issueError" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+                        <div v-if="issueError" class="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
                             {{ issueError }}
                         </div>
-                        <div v-if="props.mode === 'claims' && selectedIssueHasResolution" class="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm">
-                            <p class="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-emerald-800">Latest claim decision</p>
+                        <div v-if="props.mode === 'claims' && selectedIssueHasResolution" class="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm">
+                            <p class="mb-2 text-xs font-semibold uppercase text-emerald-800">Latest claim decision</p>
                             <div class="grid gap-2">
                                 <p class="font-semibold text-emerald-900">
                                     <template v-if="selectedIssue.claim_resolution?.decision && selectedIssue.claim_resolution?.amount_cents">
@@ -797,14 +882,14 @@ async function reopenAction() {
                                         {{ selectedIssue.claim_resolution?.decision ?? 'Recorded' }}
                                     </template>
                                 </p>
-                                <p v-if="selectedIssue.claim_resolution?.notes" class="text-slate-700">{{ selectedIssue.claim_resolution.notes }}</p>
-                                <p v-if="selectedIssue.claim_resolution?.finance_reference" class="text-slate-700">Finance ref: {{ selectedIssue.claim_resolution.finance_reference }}</p>
-                                <p v-if="selectedIssue.claim_resolution?.production_outcome" class="text-slate-700">{{ selectedIssue.claim_resolution.production_outcome }}</p>
+                                <p v-if="selectedIssue.claim_resolution?.notes" class="text-[#4c4546]">{{ selectedIssue.claim_resolution.notes }}</p>
+                                <p v-if="selectedIssue.claim_resolution?.finance_reference" class="text-[#4c4546]">Finance ref: {{ selectedIssue.claim_resolution.finance_reference }}</p>
+                                <p v-if="selectedIssue.claim_resolution?.production_outcome" class="text-[#4c4546]">{{ selectedIssue.claim_resolution.production_outcome }}</p>
                             </div>
                         </div>
-                        <div v-if="props.mode === 'claims'" class="grid gap-3 rounded-md border border-slate-200 bg-white p-4">
+                        <div v-if="props.mode === 'claims'" class="grid gap-3 rounded-2xl bg-white p-4">
                             <div class="mb-1 flex items-center justify-between">
-                                <h4 class="font-semibold text-slate-950">Claim Decision</h4>
+                                <h4 class="font-semibold text-[#18181b]">Claim Decision</h4>
                                 <Badge v-if="selectedIssue.status === 'resolved' || selectedIssue.status === 'closed'" tone="success">
                                     {{ selectedIssue.status }}
                                 </Badge>
@@ -825,8 +910,8 @@ async function reopenAction() {
                             <Textarea v-model="claimDecisionNotes" label="Decision notes" placeholder="Explain why this claim decision was taken." :rows="3" />
                             <FileDropzone label="Attach evidence" description="Attach proof files that support the claim decision." accept="image/*,.pdf,.txt,.csv" @selected="uploadClaimEvidence" />
                             <div v-if="claimEvidence.length" class="grid gap-2">
-                                <div v-for="file in claimEvidence" :key="file.id" class="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm">
-                                    <span class="truncate font-medium text-slate-700">{{ file.original_name }}</span>
+                                <div v-for="file in claimEvidence" :key="file.id" class="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                                    <span class="truncate font-medium text-[#4c4546]">{{ file.original_name }}</span>
                                     <Button variant="ghost" size="sm" @click="removeClaimEvidence(file)">Remove</Button>
                                 </div>
                             </div>
@@ -850,52 +935,52 @@ async function reopenAction() {
                         </div>
                     </div>
 
-                        <div class="border-t border-slate-200 pt-4">
+                        <div class="border-t border-zinc-200/70 pt-4">
                             <div class="mb-3 flex items-center justify-between gap-3">
-                                <h4 class="font-semibold text-slate-950">Conversation</h4>
-                                <span class="text-xs font-medium text-slate-500">{{ selectedIssueComments.length }} comments</span>
+                                <h4 class="font-semibold text-[#18181b]">Conversation</h4>
+                                <span class="text-xs font-medium text-[#71717a]">{{ selectedIssueComments.length }} comments</span>
                             </div>
                             <div class="grid max-h-80 gap-3 overflow-auto pr-1">
                                 <div
                                     v-for="comment in selectedIssueComments"
                                     :key="comment.id"
-                                    class="rounded-md border p-3"
-                                    :class="comment.internal ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'"
+                                    class="rounded-2xl p-3"
+                                    :class="comment.internal ? 'bg-amber-50' : 'bg-white'"
                                 >
                                     <div class="mb-1 flex items-center justify-between gap-3">
-                                        <span class="text-sm font-semibold text-slate-900">{{ comment.user?.name ?? 'System' }}</span>
-                                        <span class="text-xs text-slate-500">{{ dateLabel(comment.created_at) }}</span>
+                                        <span class="text-sm font-semibold text-[#18181b]">{{ comment.user?.name ?? 'System' }}</span>
+                                        <span class="text-xs text-[#71717a]">{{ dateLabel(comment.created_at) }}</span>
                                     </div>
                                     <Badge v-if="comment.internal" tone="warning">internal</Badge>
-                                    <p class="mt-2 whitespace-pre-line text-sm text-slate-600">{{ comment.body }}</p>
+                                    <p class="mt-2 whitespace-pre-line text-sm text-[#4c4546]">{{ comment.body }}</p>
                                     <div v-if="comment.attachments?.length" class="mt-3 grid gap-2">
                                         <a
                                             v-for="attachment in comment.attachments"
                                             :key="attachmentValue(attachment, 'id', attachmentValue(attachment, 'url'))"
                                             :href="attachmentValue(attachment, 'url', '#')"
-                                            class="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-teal-800"
+                                            class="inline-flex items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-950"
                                         >
                                             <Paperclip class="h-3.5 w-3.5" />
                                             {{ attachmentValue(attachment, 'original_name', 'Attachment') }}
                                         </a>
                                     </div>
                                 </div>
-                                <p v-if="selectedIssueComments.length === 0" class="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-500">
+                                <p v-if="selectedIssueComments.length === 0" class="rounded-2xl bg-white p-4 text-sm text-[#71717a]">
                                     No comments yet.
                                 </p>
                             </div>
                         </div>
 
-                        <div class="grid gap-3 border-t border-slate-200 pt-4">
+                        <div class="grid gap-3 border-t border-zinc-200/70 pt-4">
                             <Textarea v-model="issueComment" label="Reply" placeholder="Write a customer-facing reply or internal note" :rows="4" />
-                            <label class="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
-                                <input v-model="issueCommentInternal" type="checkbox" class="h-4 w-4 rounded border-slate-300 text-teal-700">
+                            <label class="inline-flex items-center gap-2 text-sm font-medium text-[#4c4546]">
+                                <input v-model="issueCommentInternal" type="checkbox" class="h-4 w-4 rounded border-zinc-300 accent-black">
                                 Internal note
                             </label>
                             <FileDropzone label="Attach file" description="Images, PDFs, or support documents are stored before the reply is sent." accept="image/*,.pdf,.txt" @selected="uploadIssueAttachment" />
                             <div v-if="issueAttachments.length" class="grid gap-2">
-                                <div v-for="file in issueAttachments" :key="file.id" class="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm">
-                                    <span class="truncate font-medium text-slate-700">{{ file.original_name }}</span>
+                                <div v-for="file in issueAttachments" :key="file.id" class="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                                    <span class="truncate font-medium text-[#4c4546]">{{ file.original_name }}</span>
                                     <Button variant="ghost" size="sm" @click="removeIssueAttachment(file)">Remove</Button>
                                 </div>
                             </div>
@@ -916,8 +1001,8 @@ async function reopenAction() {
 
                 <Card>
                     <div class="mb-4 flex items-center gap-2">
-                        <MessageSquarePlus class="h-5 w-5 text-teal-700" />
-                        <h3 class="text-lg font-bold text-slate-950">Open {{ props.mode === 'tickets' ? 'Ticket' : 'Claim' }}</h3>
+                        <MessageSquarePlus class="h-5 w-5 text-[#18181b]" />
+                        <h3 class="panel-title">Open {{ props.mode === 'tickets' ? 'ticket' : 'claim' }}</h3>
                     </div>
                     <div class="grid gap-4">
                         <Select v-model="form.order_id" label="Select order">

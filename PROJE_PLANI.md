@@ -13,7 +13,7 @@ Repo kökünde halihazırda çalışan bir Laravel 13 + Vue 3 + TypeScript SPA m
 - **13 API controller** ve karşılık gelen rotalar (`routes/web.php` içinde `/api` prefix'i altında): Auth, Portal, Order, ProductCatalog, ProductMapping, Issue, Claim, RequiredAction, Notification, NotificationSubscription, Payment, MediaUpload, User.
 - **10+ migration**: temel B2B şeması, auth sertleştirme (user_invites, active flag), media files, orders core (tracking, status_events, saved_views), required_action ve ticket workflow alanları, claim_resolutions, notification mail logs, payments.
 - **Vue SPA**: `resources/js/` altında App.vue, app.ts, router, stores (Pinia), components, views (orders, issues, products, settings), types, lib. UI primitive'leri `resources/js/components/ui` altında lokal shadcn-vue (new-york stil, neutral baseColor, CSS variables) olarak duruyor.
-- **Tooling**: PHPUnit 12 + Pint + Pail (Laravel logs) + Tinker. JS tarafında Vitest 4 + @vue/test-utils. Vite 8, Tailwind 4, TypeScript. Docker (Dockerfile + docker-compose.yml) hazır.
+- **Tooling**: PHPUnit 12 + Pint + Pail (Laravel logs) + Tinker. JS tarafında Vitest 4 + @vue/test-utils. Vite 8, Tailwind 4, TypeScript. Yerel geliştirme PHP 8.3 + PostgreSQL 16 Homebrew servisleriyle çalışır.
 - **`docs/`**: api-contract.md, implementation-gap-report.md, implementation-notes.md, production-readiness.md — mevcut sürümün eksiklik raporu da burada (özellikle Import, Required Actions, Owner Role yönetimi, Stripe dayanıklılık alanları işaretlenmiş).
 
 Bu plan, sıfırdan kurulum yerine **bu mevcut iskelet üzerinde** kalan boşlukları kapatmaya odaklanır.
@@ -51,7 +51,7 @@ Bu özet **mevcut migration ve api-contract'ta** dokümante edilmiş haldedir; a
 | Icons | lucide-vue-next | tree-shaken SVG iconlar |
 | Auth | Laravel Sanctum (SPA mode) | cookie-based session, CSRF, `auth:sanctum` middleware |
 | ORM | Eloquent | mevcut modeller |
-| DB | PostgreSQL (prod) / SQLite (dev) | `.env` ile geçilebilir, mevcut migrasyonlar her ikisinde çalışır |
+| DB | PostgreSQL 16 | Yerel geliştirme Homebrew servisi, production managed PostgreSQL |
 | Cache / Queue / Session | Redis (prod) | Laravel Queue worker + Pail logs |
 | Realtime | Laravel Reverb (WebSocket) | issue thread'leri, sipariş status değişimi için broadcast |
 | Mail | Symfony Mailer + SES / Postmark / Resend | `NotificationTemplateService` üzerinden |
@@ -61,7 +61,7 @@ Bu özet **mevcut migration ve api-contract'ta** dokümante edilmiş haldedir; a
 | Test | PHPUnit 12 (backend), Vitest 4 + Vue Test Utils (frontend), Playwright (E2E — eklenecek) | |
 | CI/CD | GitHub Actions (`.github/` mevcut) | pint + phpstan + tests + npm test + build |
 | Lint / Format | Laravel Pint (PHP), ESLint + Prettier (TS/Vue) | |
-| Container | Docker / docker-compose (mevcut) | nginx + php-fpm + postgres + redis |
+| Runtime | Yerel servisler + Laravel serve/Vite | Production'da nginx + php-fpm + managed servisler |
 
 ---
 
@@ -463,7 +463,7 @@ PaymentFailed            → CreateRequiredAction('payment_failed')
 ## 10. Realtime Bildirimler
 
 Önerilen:
-- **Laravel Reverb** (kendi WebSocket sunucusu) → docker-compose'a eklenir.
+- **Laravel Reverb** (kendi WebSocket sunucusu) → ayrı yerel/production servis olarak çalıştırılır.
 - Vue tarafında `laravel-echo` + `pusher-js` (Reverb pusher protokolüyle uyumlu).
 - Kanallar:
   - `private-tenant.{tenantId}` → tenant-wide event'ler (yeni required action, sipariş status)
@@ -659,17 +659,17 @@ Aynı SPA içinde role-based router guard ile `/admin/*` rotaları açılır; ay
 
 ### 20.1 GitHub Actions (mevcut `.github/`)
 - PR'da: pint check, phpstan, phpunit, vitest, npm build
-- Main merge: docker image build → registry → staging deploy (envoy/octane/k8s tercih)
+- Main merge: build artifact → staging deploy (envoy/octane/k8s tercih)
 - Production deploy: tag-based (`v1.x.x`) + manuel onay
 
 ### 20.2 Production Stack (önerilen)
-- Web: nginx + php-fpm (Dockerfile mevcut) + Octane (Swoole/RoadRunner) opsiyonel performans
+- Web: nginx + php-fpm + Octane (Swoole/RoadRunner) opsiyonel performans
 - DB: PostgreSQL 16 managed (RDS / Cloud SQL / Neon)
 - Cache/Queue: Redis 7 managed (Upstash / ElastiCache)
 - Storage: S3 / R2
 - Mail: Resend veya SES
 - Logs: Laravel Pail (dev), Sentry + Datadog/CloudWatch (prod)
-- WebSocket: Reverb sidecar container
+- WebSocket: Reverb servis süreci
 - Worker: Horizon + Supervisor
 
 ### 20.3 Önerilen `.env` (kritik anahtarlar)

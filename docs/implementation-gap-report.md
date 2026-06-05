@@ -1,30 +1,27 @@
-# B2B Canvas - Eksiklik Raporu (2026-05-09)
+# B2B Canvas - Eksiklik Raporu (güncel: 2026-05-11)
 
 ## 1) Özet
 
-Bu rapor, mevcut `main` branch üzerinde yapılan hızlı denetimin çıktılarını içerir.  
-Modüller çalışır durumda olsa da örnek hedef site ile birebir akış eşleşmesi için bazı alanlar eksik veya sınırlı kalmıştır.
+Bu rapor, ilk olarak 2026-05-09 tarihinde mevcut `main` branch üzerinde yapılan hızlı denetimin çıktılarını içeriyordu. 2026-05-11 güncellemesiyle PostgreSQL yerel çalışma düzeni, XLSX import, backend template, required action kapama akışları, owner rol görünürlüğü ve Stitch tabanlı admin panel görsel dili büyük ölçüde uygulandı.
 
-Rapor, yalnızca mevcut kod tabanından gözlenen durumun çıkarımıdır; hiçbir dosya henüz değiştirilmemişti.
+Bu doküman artık kalan işleri ayırır: tamamlanan P0/P1 bulgular, hâlâ üretim sertleştirmesi isteyen alanlar ve sonraki sprint adayları.
 
 ## 2) Modül Bazında Eksik Durumlar
 
 ### A. Auth / Tenant / Permission
-- Rol yönetimi backend’de `owner` destekli olsa da,
-  - Ayarlar UI’sindeki rol seçenekleri owner’ı göstermiyor.
-- Davet ve rol güncelleme ekranları bazı rollerde kilitli kalabiliyor.
-- Sonuç: Owner erişimi yönetimi pratikte UI’dan eksik.
+- Durum: Owner rolü artık ayarlar UI’ında görünür; owner kullanıcı `owner`, `admin`, `operations`, `support`, `viewer` rollerini atayabilir.
+- Davet, rol güncelleme ve pasifleştirme akışı test kapsamına alınmış durumda.
+- Kalan: Tenant ayarları paneli (`support_email`, default shipping service, tenant settings JSON) ve rol bazlı UI/E2E test kapsamı genişletilmeli.
 
 Etki dosyaları:
 - `app/Models/User.php`
 - `resources/js/views/settings/SettingsView.vue`
 
-### B. Import Orders (CSV Intake + Import Motoru)
-- Import ekranında örnek (`sample`) CSV metni frontend’de hardcoded.
-- UI metni XLSX’i işaretlese de backend akışı CSV ağırlıklı:
-  - Parser sadece CSV formatını işliyor.
-  - Xlsx dönüşüm hattı ve üretimsel queue/scale yaklaşımı yok.
-- Büyük dosya/queue optimizasyonu ve chunk işleme eksik.
+### B. Import Orders (CSV/XLSX Intake + Import Motoru)
+- Durum: Örnek import template’i backend’den servis ediliyor; frontend hardcoded sample kaldırıldı.
+- Durum: XLSX parser eklendi ve backend preview akışında kullanılıyor.
+- Durum: Import commit işlemi için `ProcessImportRowsJob` eklendi; duplicate ve unavailable product hataları required action’a bağlanıyor.
+- Kalan: Commit akışı production’da gerçek async queue dispatch ile çalıştırılmalı; büyük dosyalar için chunk/resume stratejisi ayrıca sertleştirilmeli.
 
 Etki dosyaları:
 - `resources/js/views/orders/ImportOrdersView.vue`
@@ -32,9 +29,9 @@ Etki dosyaları:
 - `app/Http/Controllers/Api/OrderController.php` (`importPreview`, `commitImport`)
 
 ### C. Required Actions / Çözümler
-- İş akışı esas olarak `product_mapping_required` ve `address_error` etrafında çözülmüş durumda.
-- Aksiyon türleri genişletilmiş görünse de (UI’da etiket/etiketleme), çözüm mantığı ve otomatik yeniden doğrulama her tipe yayılmıyor.
-- `invalid_artwork`, `duplicate_order`, `product_unavailable` için çözümleme akışları sınırlı.
+- Durum: `product_mapping_required`, `address_error`, `invalid_artwork`, `duplicate_order`, `product_unavailable` için çözümleme akışları backend ve UI tarafında genişletildi.
+- Durum: Mapping oluşturulduğunda ilgili import row/order item yeniden doğrulama zinciri test kapsamına alındı.
+- Kalan: Media kalite validasyonu (`invalid_artwork` kaynağı), gerçek üretim öncesi dosya kontrolü ve daha zengin action timeline UX’i Sprint 7/Sprint 4 kapsamına kalıyor.
 
 Etki dosyaları:
 - `app/Services/RequiredActionWorkflowService.php`
@@ -51,8 +48,8 @@ Etki dosyaları:
 - `resources/js/views/settings/SettingsView.vue`
 
 ### E. Ürün/Import/Action Entegrasyon Tutarlılığı
-- Mapping eşleşmesi ve otomatik aksiyon çözümü var ancak bazı mapping türlerinde import hattı tam kapatma akışları sınırlı.
-- Import commit aşamasında duplicate ve doğrulama hatalarına karşı eylem çözümü var; fakat yeniden deneme + re-validate zinciri tipik operasyonel yükü karşılamada yetersiz.
+- Durum: Mapping eşleşmesi, duplicate order çözümü ve unavailable product alternatifi import hattına bağlandı.
+- Kalan: Yüksek hacimli importlarda retry/revalidate zinciri gerçek queue worker ve operasyon loglarıyla daha görünür hale getirilmeli.
 
 Etki dosyaları:
 - `app/Http/Controllers/Api/OrderController.php`
@@ -71,20 +68,19 @@ Etki dosyaları:
 
 ## 3) Eksiklerin Sıralaması (Öncelik)
 
-- **P0 – Import UX/Backend Teklifi**
-  - hardcoded sample kaldır, sampleı backend ile serve et.
-  - XLSX intake ekle veya planında açıkça kapat.
-  - Import validation + required action bridge’i tip bazlı tamamla.
+- **Tamamlandı – Import UX/Backend P0**
+  - backend sample template, XLSX preview, import job sınıfı, duplicate/unavailable action bridge’i.
 
-- **P1 – Required Action Kapama Mantığı**
-  - `invalid_artwork`, `duplicate_order`, `product_unavailable` için çözüm ve yeniden doğrulama.
-  - `reopen`/`escalate`/`resolve` akışlarını bütün türlere yay.
+- **Tamamlandı – Required Action Kapama P1**
+  - `invalid_artwork`, `duplicate_order`, `product_unavailable` çözüm formları ve backend işleme.
+  - `reopen`/`escalate`/`resolve` akışları required action türlerine yayıldı.
 
-- **P1 – Rol ve Güvenlik Tutarlılığı**
-  - owner rol yönetimi UI’da birebir backend ile eşle.
-  - kritik eylemler için izin kısıtlarını tek davranışta denetle.
+- **Tamamlandı – Rol ve Güvenlik Tutarlılığı P1**
+  - owner rol yönetimi UI’da backend ile eşlendi.
+  - kritik kullanıcı ve katalog işlemleri feature testlerle korunuyor.
 
-- **P2 – Bildirim Yönetimi**
+- **Sıradaki P1/P2 – Tenant Settings + Bildirim Yönetimi**
+  - Tenant settings paneli ekle.
   - Event kataloğunu tenant seviyede sabit/seed kontrollü yönet.
   - log ve retry metriklerini operasyon ekranında netleştir.
 
@@ -94,18 +90,16 @@ Etki dosyaları:
 
 ## 4) Modül Bazlı Uygulama Önerisi (Sıralı)
 
-1. Import modülünü kapat:
-   - örnek/veri kaynağı: backend.
-   - parser/mapped row modeli standardize et.
-   - preview/commit akışları için required action yeniden tetikleme.
-2. Required Action modülünü kapat:
-   - tüm türler için çözüm + otomatik revalidation.
-3. Settings rol yönetimini kapat:
-   - owner rolü UI’da görünür + güvenli geçiş.
-4. Notifications:
+1. UI/UX final temizlik:
+   - Issues, Product Catalog, Settings, Order Wizard ve mobile kırılımlarında Stitch dilini tamamla.
+2. Tenant Settings:
+   - tenant identity/settings paneli, policy ve testler.
+3. Notifications:
    - event kataloğu ve seed kontrolü tek noktaya taşı.
-5. Stripe:
+4. Stripe:
    - ödeme akışı senaryolarını e2e ile doğrula, retry ve status audit’i kalıcılaştır.
+5. Production hardening:
+   - gerçek async queue, runbook, webhook/API token modülleri.
 
 ## 5) Sonuç
 

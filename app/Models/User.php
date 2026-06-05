@@ -22,7 +22,7 @@ class User extends Authenticatable
     public const ROLES = ['owner', 'admin', 'operations', 'support', 'viewer'];
 
     public const PERMISSIONS = [
-        'owner' => ['view_dashboard', 'view_orders', 'manage_orders', 'manage_catalog', 'manage_mappings', 'manage_issues', 'manage_users'],
+        'owner' => ['view_dashboard', 'view_orders', 'manage_orders', 'manage_catalog', 'manage_mappings', 'manage_issues', 'manage_users', 'manage_tenant'],
         'admin' => ['view_dashboard', 'view_orders', 'manage_orders', 'manage_catalog', 'manage_mappings', 'manage_issues', 'manage_users'],
         'operations' => ['view_dashboard', 'view_orders', 'manage_orders', 'manage_catalog', 'manage_mappings'],
         'support' => ['view_dashboard', 'view_orders', 'manage_issues'],

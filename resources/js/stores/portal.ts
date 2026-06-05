@@ -87,6 +87,7 @@ export const usePortalStore = defineStore('portal', {
         issues: [] as Issue[],
         requiredActions: [] as RequiredAction[],
         notificationSubscriptions: [] as NotificationSubscription[],
+        notificationEvents: {} as Record<string, string>,
         notificationLogs: [] as NotificationLog[],
         users: [] as User[],
         userInvites: [] as UserInvite[],
@@ -167,6 +168,7 @@ export const usePortalStore = defineStore('portal', {
                 this.issues = payload.issues;
                 this.requiredActions = payload.requiredActions;
                 this.notificationSubscriptions = payload.notificationSubscriptions;
+                this.notificationEvents = payload.notificationEvents ?? {};
                 this.users = payload.users;
                 this.userInvites = payload.userInvites;
                 this.loaded = true;
@@ -300,6 +302,18 @@ export const usePortalStore = defineStore('portal', {
             await request<{ message: string }>(`/api/orders/saved-views/${view.id}`, { method: 'DELETE' });
             this.savedViews = this.savedViews.filter((item) => item.id !== view.id);
         },
+        async updateTenant(payload: {
+            name?: string;
+            support_email?: string | null;
+            settings?: Record<string, unknown>;
+        }) {
+            const tenant = await request<Tenant>('/api/tenant', {
+                method: 'PATCH',
+                body: JSON.stringify(payload),
+            });
+            this.tenant = tenant;
+            return tenant;
+        },
         replaceOrder(order: Order) {
             const index = this.orders.findIndex((item) => item.id === order.id);
             if (index >= 0) {
@@ -312,10 +326,21 @@ export const usePortalStore = defineStore('portal', {
                 this.orderList[listIndex] = order;
             }
         },
-        async previewImport(csv: string) {
+        async previewImport(input: string | File, filename?: string) {
+            if (input instanceof File) {
+                const formData = new FormData();
+                formData.append('file', input);
+                formData.append('filename', filename ?? input.name);
+
+                return request<ImportPreview>('/api/orders/imports/preview', {
+                    method: 'POST',
+                    body: formData,
+                });
+            }
+
             return request<ImportPreview>('/api/orders/imports/preview', {
                 method: 'POST',
-                body: JSON.stringify({ csv }),
+                body: JSON.stringify({ csv: input, filename }),
             });
         },
         async importTemplate() {

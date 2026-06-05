@@ -188,13 +188,13 @@ function maxRulePriority(mapping: ProductMapping) {
 </script>
 
 <template>
-    <div class="grid gap-5">
+    <div class="app-page">
         <div class="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
-            <div>
-                <h2 class="text-2xl font-bold text-slate-950">Product Mappings</h2>
-                <p class="text-slate-600">Map marketplace item names, SKUs, and fulfillment SKUs into production-ready variants.</p>
+            <div class="page-heading">
+                <h2>Product Mappings</h2>
+                <p>Map marketplace item names, SKUs, and fulfillment SKUs into production-ready variants.</p>
             </div>
-            <Button variant="outline" @click="resetForm"><Plus class="h-4 w-4" /> New mapping</Button>
+            <Button variant="outline" size="sm" @click="resetForm"><Plus class="h-4 w-4" /> New mapping</Button>
         </div>
 
         <div class="grid gap-5 2xl:grid-cols-[1fr_520px]">
@@ -206,7 +206,7 @@ function maxRulePriority(mapping: ProductMapping) {
                     </div>
 
                     <DataTable min-width="980px">
-                        <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+                        <thead>
                             <tr>
                                 <th class="px-4 py-3">Mapping</th>
                                 <th class="px-4 py-3">Production Product</th>
@@ -214,26 +214,26 @@ function maxRulePriority(mapping: ProductMapping) {
                                 <th class="px-4 py-3">Priority</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-slate-200">
+                        <tbody class="divide-y divide-zinc-100">
                             <tr
                                 v-for="mapping in mappings"
                                 :key="mapping.id"
-                                class="cursor-pointer bg-white hover:bg-slate-50"
+                                class="cursor-pointer hover:bg-zinc-100/50"
                                 @click="selectMapping(mapping)"
                             >
                                 <td class="px-4 py-3">
-                                    <p class="font-semibold text-slate-950">{{ mapping.name }}</p>
+                                    <p class="font-semibold text-[#18181b]">{{ mapping.name }}</p>
                                     <div class="mt-2 flex flex-wrap gap-2">
                                         <Badge v-for="(value, key) in mapping.properties" :key="key" tone="neutral">{{ key }}: {{ value }}</Badge>
                                     </div>
                                 </td>
                                 <td class="px-4 py-3">
-                                    <p class="font-semibold text-teal-800">{{ mapping.variant?.sku }}</p>
-                                    <p class="text-slate-500">{{ mapping.variant?.name }}</p>
+                                    <p class="font-semibold text-[#18181b]">{{ mapping.variant?.sku }}</p>
+                                    <p class="text-[#71717a]">{{ mapping.variant?.name }}</p>
                                 </td>
                                 <td class="px-4 py-3">
                                     <div class="grid gap-1">
-                                        <code v-for="rule in mapping.rules" :key="rule.field + rule.operator + rule.value" class="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">
+                                        <code v-for="rule in mapping.rules" :key="rule.field + rule.operator + rule.value" class="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs text-zinc-600">
                                             {{ rule.field }} {{ rule.operator }} {{ rule.value }}
                                         </code>
                                     </div>
@@ -256,8 +256,8 @@ function maxRulePriority(mapping: ProductMapping) {
                 <Card>
                     <div class="mb-4 flex items-center justify-between gap-3">
                         <div class="flex items-center gap-2">
-                            <PlayCircle class="h-5 w-5 text-teal-700" />
-                            <h3 class="text-lg font-bold text-slate-950">Rule Simulator</h3>
+                            <PlayCircle class="h-5 w-5 text-[#18181b]" />
+                            <h3 class="panel-title">Rule Simulator</h3>
                         </div>
                         <Button size="sm" @click="runSimulator"><RefreshCcw class="h-4 w-4" /> Simulate</Button>
                     </div>
@@ -285,12 +285,12 @@ function maxRulePriority(mapping: ProductMapping) {
                         />
 
                         <div v-if="simulation.candidates.length" class="grid gap-2">
-                            <div v-for="candidate in simulation.candidates" :key="candidate.mapping.id" class="rounded-md border border-slate-200 p-3">
+                            <div v-for="candidate in simulation.candidates" :key="candidate.mapping.id" class="rounded-2xl bg-white p-3">
                                 <div class="flex items-center justify-between gap-3">
-                                    <p class="font-semibold text-slate-950">{{ candidate.mapping.name }}</p>
+                                    <p class="font-semibold text-[#18181b]">{{ candidate.mapping.name }}</p>
                                     <Badge tone="info">Score {{ candidate.score }}</Badge>
                                 </div>
-                                <p class="mt-1 text-sm text-slate-500">{{ candidate.mapping.variant?.sku }} · {{ candidate.rule_count }} rules</p>
+                                <p class="mt-1 text-sm text-[#71717a]">{{ candidate.mapping.variant?.sku }} · {{ candidate.rule_count }} rules</p>
                             </div>
                         </div>
                     </div>
@@ -299,8 +299,8 @@ function maxRulePriority(mapping: ProductMapping) {
 
             <Card>
                 <div class="mb-4 flex items-center gap-2">
-                    <Plus class="h-5 w-5 text-teal-700" />
-                    <h3 class="text-lg font-bold text-slate-950">{{ selectedMapping ? 'Edit Mapping' : 'Create Mapping' }}</h3>
+                    <Plus class="h-5 w-5 text-[#18181b]" />
+                    <h3 class="panel-title">{{ selectedMapping ? 'Edit Mapping' : 'Create Mapping' }}</h3>
                 </div>
 
                 <div class="grid gap-4">
@@ -315,10 +315,10 @@ function maxRulePriority(mapping: ProductMapping) {
 
                     <div class="grid gap-3">
                         <div class="flex items-center justify-between gap-3">
-                            <p class="text-sm font-bold text-slate-950">Rules</p>
+                            <p class="text-sm font-semibold text-[#18181b]">Rules</p>
                             <Button variant="outline" size="sm" @click="addRule"><Plus class="h-4 w-4" /> Rule</Button>
                         </div>
-                        <div v-for="(rule, index) in form.rules" :key="index" class="grid gap-3 rounded-md border border-slate-200 p-3">
+                        <div v-for="(rule, index) in form.rules" :key="index" class="grid gap-3 rounded-2xl bg-white p-3">
                             <div class="grid grid-cols-2 gap-3">
                                 <Select v-model="rule.field" label="Field">
                                     <option value="sku">SKU</option>

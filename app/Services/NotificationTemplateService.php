@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\NotificationSubscription;
+use App\Support\NotificationEventCatalog;
 
 class NotificationTemplateService
 {
@@ -13,11 +14,11 @@ class NotificationTemplateService
     public function compose(string $event, array $payload): array
     {
         return match ($event) {
-            'ORDER_SHIPPED' => $this->composeOrderShipped($payload),
-            'ORDER_ACTION_NEEDED' => $this->composeOrderActionNeeded($payload),
-            'ORDER_ISSUE_COMMENT_ADDED' => $this->composeIssueCommentAdded($payload),
-            'ORDER_VALIDATION_FAILED' => $this->composeOrderValidationFailed($payload),
-            'ORDER_PAYMENT_COMPLETED' => $this->composePaymentCompleted($payload),
+            NotificationEventCatalog::ORDER_SHIPPED => $this->composeOrderShipped($payload),
+            NotificationEventCatalog::ORDER_ACTION_NEEDED => $this->composeOrderActionNeeded($payload),
+            NotificationEventCatalog::ORDER_ISSUE_COMMENT_ADDED => $this->composeIssueCommentAdded($payload),
+            NotificationEventCatalog::ORDER_VALIDATION_FAILED => $this->composeOrderValidationFailed($payload),
+            NotificationEventCatalog::ORDER_PAYMENT_COMPLETED => $this->composePaymentCompleted($payload),
             default => $this->composeDefault($event, $payload),
         };
     }

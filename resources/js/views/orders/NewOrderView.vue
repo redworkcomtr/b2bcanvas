@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CreditCard, Check, ImageUp, Layers3, PackagePlus, Plus, Save, Trash2, Truck } from 'lucide-vue-next';
+import { CircleAlert, CircleCheck, CreditCard, Check, ImageUp, Layers3, PackagePlus, Plus, Save, Trash2, Truck } from 'lucide-vue-next';
 import { loadStripe, type Stripe, type StripeCardElement, type StripeElements } from '@stripe/stripe-js';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -39,18 +39,30 @@ const uploading = ref(false);
 const submitting = ref(false);
 const statusMessage = ref('');
 const errorMessage = ref('');
+const draftLoaded = ref(false);
+const autosaveDraft = ref(true);
+const lastSavedAt = ref('');
+const touchedSteps = ref<number[]>([]);
 const items = ref<WizardItem[]>([blankItem()]);
-const shipping = reactive({
-    customer_name: '',
-    line1: '',
-    line2: '',
-    city: '',
-    state: '',
-    postal_code: '',
-    country: 'US',
-    shipping_service: 'Standard Ground',
-});
+const shipping = reactive(defaultShipping());
 const notes = ref('');
+
+function defaultShipping() {
+    return {
+        customer_name: '',
+        line1: '',
+        line2: '',
+        city: '',
+        state: '',
+        postal_code: '',
+        country: 'US',
+        shipping_service: 'Standard Ground',
+    };
+}
+
+function resetShipping() {
+    Object.assign(shipping, defaultShipping());
+}
 
 const paymentOrder = ref<Order | null>(null);
 const paymentIntentId = ref('');
@@ -72,8 +84,54 @@ const activeVariant = computed(() => variantFor(activeItem.value));
 const allConfigured = computed(() => items.value.every((item) => item.product_variant_id && item.quantity > 0));
 const allOptionsReady = computed(() => items.value.every((item) => item.print_option));
 const allArtworkReady = computed(() => items.value.every((item) => item.artwork));
-const shippingReady = computed(() => shipping.customer_name && shipping.line1 && shipping.city && shipping.postal_code && shipping.country);
+const shippingReady = computed(() => Boolean(shipping.customer_name && shipping.line1 && shipping.city && shipping.postal_code && shipping.country));
 const isPaymentStep = computed(() => requiresPayment.value && step.value === steps.value.length);
+const firstInvalidStep = computed(() => {
+    if (!allConfigured.value) {
+        return 1;
+    }
+    if (!allOptionsReady.value) {
+        return 2;
+    }
+    if (!allArtworkReady.value) {
+        return 3;
+    }
+    if (!shippingReady.value) {
+        return 4;
+    }
+
+    return 0;
+});
+const currentStepFeedback = computed(() => {
+    if (isPaymentStep.value) {
+        return paymentOrder.value
+            ? 'Card payment is ready for this submitted order.'
+            : 'Submit the summary first to create a secure payment request.';
+    }
+
+    if (step.value === 5) {
+        if (firstInvalidStep.value) {
+            return `Resolve ${steps.value[firstInvalidStep.value - 1].toLowerCase()} before creating the order. ${stepFeedbackFor(firstInvalidStep.value)}`;
+        }
+
+        return requiresPayment.value
+            ? 'Review the order and create the payment request when everything looks right.'
+            : 'Review the order total, shipping, and artwork before submitting.';
+    }
+
+    return stepFeedbackFor(step.value);
+});
+const currentStepFeedbackTone = computed<'info' | 'warning'>(() => {
+    if (!currentStepFeedback.value) {
+        return 'info';
+    }
+
+    if (touchedSteps.value.includes(step.value) && firstInvalidStep.value !== 0 && firstInvalidStep.value <= step.value) {
+        return 'warning';
+    }
+
+    return 'info';
+});
 
 function blankItem(): WizardItem {
     return {
@@ -117,6 +175,169 @@ function itemSubtotal(item: WizardItem) {
     }
 
     return (variant.price_cents + optionPrice(item)) * Number(item.quantity || 1);
+}
+
+function missingProductIndex() {
+    return items.value.findIndex((item) => !item.product_variant_id || Number(item.quantity || 0) <= 0);
+}
+
+function missingOptionsIndex() {
+    return items.value.findIndex((item) => !item.print_option);
+}
+
+function missingArtworkIndex() {
+    return items.value.findIndex((item) => !item.artwork);
+}
+
+function missingShippingFields() {
+    const fields: string[] = [];
+
+    if (!shipping.customer_name) {
+        fields.push('customer name');
+    }
+    if (!shipping.line1) {
+        fields.push('address line 1');
+    }
+    if (!shipping.city) {
+        fields.push('city');
+    }
+    if (!shipping.postal_code) {
+        fields.push('postal code');
+    }
+    if (!shipping.country) {
+        fields.push('country');
+    }
+
+    return fields;
+}
+
+function stepFeedbackFor(stepNumber: number) {
+    if (stepNumber === 1) {
+        const index = missingProductIndex();
+
+        return index === -1
+            ? 'Products are ready.'
+            : `Item ${index + 1} needs a production product and a quantity above zero.`;
+    }
+
+    if (stepNumber === 2) {
+        const index = missingOptionsIndex();
+
+        return index === -1
+            ? 'Production options are ready.'
+            : `Item ${index + 1} needs a print option before artwork upload.`;
+    }
+
+    if (stepNumber === 3) {
+        const index = missingArtworkIndex();
+
+        return index === -1
+            ? 'Artwork is ready for every item.'
+            : `Item ${index + 1} still needs an uploaded artwork file.`;
+    }
+
+    if (stepNumber === 4) {
+        const fields = missingShippingFields();
+
+        return fields.length
+            ? `Shipping is missing ${fields.join(', ')}.`
+            : 'Shipping is ready.';
+    }
+
+    return '';
+}
+
+function markStepTouched(stepNumber = step.value) {
+    if (!touchedSteps.value.includes(stepNumber)) {
+        touchedSteps.value = [...touchedSteps.value, stepNumber];
+    }
+}
+
+function firstInvalidStepBefore(targetStep: number) {
+    if (targetStep > 1 && !allConfigured.value) {
+        return 1;
+    }
+    if (targetStep > 2 && !allOptionsReady.value) {
+        return 2;
+    }
+    if (targetStep > 3 && !allArtworkReady.value) {
+        return 3;
+    }
+    if (targetStep > 4 && !shippingReady.value) {
+        return 4;
+    }
+
+    return 0;
+}
+
+function stepIsComplete(stepNumber: number) {
+    if (requiresPayment.value && stepNumber === steps.value.length) {
+        return Boolean(paymentOrder.value && paymentClientSecret.value);
+    }
+
+    if (stepNumber === 1) {
+        return allConfigured.value;
+    }
+    if (stepNumber === 2) {
+        return allConfigured.value && allOptionsReady.value;
+    }
+    if (stepNumber === 3) {
+        return allConfigured.value && allOptionsReady.value && allArtworkReady.value;
+    }
+    if (stepNumber === 4) {
+        return firstInvalidStep.value === 0;
+    }
+    if (stepNumber === 5) {
+        return firstInvalidStep.value === 0;
+    }
+
+    return false;
+}
+
+function stepStatus(stepNumber: number): 'complete' | 'warning' | 'idle' {
+    if (stepIsComplete(stepNumber)) {
+        return 'complete';
+    }
+
+    const invalidStep = firstInvalidStep.value;
+    const shouldWarn = touchedSteps.value.includes(stepNumber) || step.value === stepNumber || step.value > stepNumber;
+
+    if (shouldWarn && invalidStep !== 0 && invalidStep <= stepNumber) {
+        return 'warning';
+    }
+
+    return 'idle';
+}
+
+function goToStep(targetStep: number) {
+    const boundedStep = Math.min(Math.max(targetStep, 1), steps.value.length);
+
+    markStepTouched();
+
+    if (boundedStep > step.value) {
+        const invalidStep = firstInvalidStepBefore(boundedStep);
+
+        if (invalidStep) {
+            markStepTouched(invalidStep);
+            activeIndex.value = Math.max(0, [
+                missingProductIndex(),
+                missingOptionsIndex(),
+                missingArtworkIndex(),
+            ].find((index) => index >= 0) ?? activeIndex.value);
+            step.value = invalidStep;
+            errorMessage.value = '';
+            return;
+        }
+    }
+
+    if (requiresPayment.value && boundedStep === steps.value.length && !paymentOrder.value) {
+        step.value = 5;
+        errorMessage.value = '';
+        return;
+    }
+
+    step.value = boundedStep;
+    errorMessage.value = '';
 }
 
 function addItem() {
@@ -257,7 +478,7 @@ async function submitPayment() {
         });
 
         if (synced.result.order_status === 'submitted') {
-            localStorage.removeItem(draftKey);
+            removeLocalDraft();
             paymentMessage.value = 'Payment successful. Order has been submitted.';
             await router.push(`/orders/${synced.order.uuid}`);
             return;
@@ -289,15 +510,59 @@ async function submitPayment() {
     }
 }
 
-function saveLocalDraft(message = 'Draft saved locally.') {
+function formatSavedTime(date: Date) {
+    return new Intl.DateTimeFormat(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+    }).format(date);
+}
+
+function persistLocalDraft(message?: string) {
+    const savedAt = new Date();
+
     localStorage.setItem(draftKey, JSON.stringify({
         items: items.value,
-        shipping,
+        shipping: { ...shipping },
         notes: notes.value,
         step: step.value,
         activeIndex: activeIndex.value,
+        savedAt: savedAt.toISOString(),
     }));
-    statusMessage.value = message;
+    lastSavedAt.value = formatSavedTime(savedAt);
+
+    if (message !== undefined) {
+        statusMessage.value = message;
+    }
+}
+
+function saveLocalDraft(message = 'Draft saved locally.') {
+    persistLocalDraft(message);
+}
+
+function removeLocalDraft() {
+    autosaveDraft.value = false;
+    localStorage.removeItem(draftKey);
+}
+
+async function startNewOrder() {
+    autosaveDraft.value = false;
+    localStorage.removeItem(draftKey);
+
+    await detachCard();
+    items.value = [blankItem()];
+    resetShipping();
+    notes.value = '';
+    step.value = 1;
+    activeIndex.value = 0;
+    touchedSteps.value = [];
+    lastSavedAt.value = '';
+    paymentOrder.value = null;
+    clearPaymentState();
+    errorMessage.value = '';
+    statusMessage.value = 'Local draft cleared. A blank order is ready.';
+
+    await nextTick();
+    autosaveDraft.value = true;
 }
 
 function loadLocalDraft() {
@@ -313,40 +578,41 @@ function loadLocalDraft() {
             notes?: string;
             step?: number;
             activeIndex?: number;
+            savedAt?: string;
         };
         if (draft.items?.length) {
             items.value = draft.items;
         }
         Object.assign(shipping, draft.shipping ?? {});
         notes.value = draft.notes ?? '';
-        step.value = draft.step ?? 1;
-        activeIndex.value = draft.activeIndex ?? 0;
+        step.value = Math.min(Math.max(Number(draft.step ?? 1), 1), steps.value.length);
+        if (requiresPayment.value && step.value === steps.value.length) {
+            step.value = 5;
+        }
+        activeIndex.value = Math.min(Math.max(Number(draft.activeIndex ?? 0), 0), items.value.length - 1);
+
+        if (draft.savedAt) {
+            const savedAt = new Date(draft.savedAt);
+
+            if (!Number.isNaN(savedAt.getTime())) {
+                lastSavedAt.value = formatSavedTime(savedAt);
+            }
+        }
+
+        statusMessage.value = 'Draft restored from this browser.';
     } catch {
         localStorage.removeItem(draftKey);
     }
 }
 
 function validateBeforeSubmit() {
-    if (!allConfigured.value) {
-        errorMessage.value = 'Every item needs a production product and quantity.';
-        step.value = 1;
+    if (firstInvalidStep.value) {
+        markStepTouched(firstInvalidStep.value);
+        errorMessage.value = stepFeedbackFor(firstInvalidStep.value);
+        step.value = firstInvalidStep.value;
         return false;
     }
-    if (!allOptionsReady.value) {
-        errorMessage.value = 'Every item needs a print option.';
-        step.value = 2;
-        return false;
-    }
-    if (!allArtworkReady.value) {
-        errorMessage.value = 'Every item needs an uploaded artwork file.';
-        step.value = 3;
-        return false;
-    }
-    if (!shippingReady.value) {
-        errorMessage.value = 'Shipping information is required before submitting.';
-        step.value = 4;
-        return false;
-    }
+
     return true;
 }
 
@@ -392,20 +658,20 @@ async function submit(status: 'verified' | 'draft' = 'verified') {
         });
 
         if (status === 'draft') {
-            localStorage.removeItem(draftKey);
+            removeLocalDraft();
             await router.push(`/orders/${order.uuid}`);
             return;
         }
 
         if (requiresPayment.value) {
-            localStorage.removeItem(draftKey);
+            removeLocalDraft();
             paymentOrder.value = order;
             step.value = steps.value.length;
             await createPaymentIntentForOrder(order);
             return;
         }
 
-        localStorage.removeItem(draftKey);
+        removeLocalDraft();
         await router.push(`/orders/${order.uuid}`);
     } catch (exception) {
         errorMessage.value = exception instanceof ApiError
@@ -417,7 +683,11 @@ async function submit(status: 'verified' | 'draft' = 'verified') {
 }
 
 watch([items, shipping, notes, step, activeIndex], () => {
-    saveLocalDraft('');
+    if (!draftLoaded.value || !autosaveDraft.value) {
+        return;
+    }
+
+    persistLocalDraft();
 }, { deep: true });
 
 watch(step, (value) => {
@@ -439,7 +709,10 @@ watch([subtotalCents], () => {
     }
 });
 
-onMounted(loadLocalDraft);
+onMounted(() => {
+    loadLocalDraft();
+    draftLoaded.value = true;
+});
 
 onBeforeUnmount(() => {
     void detachCard();
@@ -447,13 +720,19 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div class="grid gap-5">
+    <div class="app-page">
         <div class="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
-            <div>
-                <h2 class="text-2xl font-bold text-slate-950">Submit New Order</h2>
-                <p class="text-slate-600">Build a multi-item print order with artwork, production options, pricing, and shipping gates.</p>
+            <div class="page-heading">
+                <h2>Submit New Order</h2>
+                <p>Build a multi-item print order with artwork, production options, pricing, and shipping gates.</p>
             </div>
-            <Button variant="outline" @click="saveLocalDraft()"><Save class="h-4 w-4" /> Save draft</Button>
+            <div class="flex flex-col items-start gap-2 xl:items-end">
+                <div class="flex flex-wrap gap-2">
+                    <Button variant="outline" size="sm" @click="saveLocalDraft()"><Save class="h-4 w-4" /> Save draft</Button>
+                    <Button variant="ghost" size="sm" @click="startNewOrder"><Plus class="h-4 w-4" /> New blank order</Button>
+                </div>
+                <p v-if="lastSavedAt" class="text-xs font-medium text-[#71717a]">Last autosaved {{ lastSavedAt }}</p>
+            </div>
         </div>
 
         <Alert v-if="statusMessage" tone="success" title="Wizard state saved" :description="statusMessage" />
@@ -461,41 +740,71 @@ onBeforeUnmount(() => {
 
         <div class="grid gap-5 2xl:grid-cols-[1fr_380px]">
             <Card>
-                <div class="mb-6 grid gap-2 md:grid-cols-5">
+                <div :class="['mb-4 grid gap-2', steps.length === 6 ? 'md:grid-cols-3 xl:grid-cols-6' : 'md:grid-cols-5']">
                     <button
                         v-for="(label, index) in steps"
                         :key="label"
-                        :class="['rounded-md border px-3 py-2 text-left text-sm font-semibold', step === index + 1 ? 'border-teal-500 bg-teal-50 text-teal-800' : 'border-slate-200 bg-white text-slate-500']"
-                        @click="step = index + 1"
+                        :class="[
+                            'min-h-[44px] rounded-lg border px-3 py-2 text-left text-sm font-medium transition-colors',
+                            step === index + 1
+                                ? 'border-[#18181b]/10 bg-zinc-200/60 text-[#18181b]'
+                                : stepStatus(index + 1) === 'warning'
+                                    ? 'border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100/80'
+                                    : stepStatus(index + 1) === 'complete'
+                                        ? 'border-emerald-200 bg-emerald-50/80 text-emerald-900 hover:bg-emerald-50'
+                                        : 'border-transparent bg-white text-[#71717a] hover:bg-zinc-200/50'
+                        ]"
+                        @click="goToStep(index + 1)"
                     >
-                        {{ label }}
+                        <span class="flex items-center justify-between gap-2">
+                            <span>{{ label }}</span>
+                            <CircleCheck v-if="stepStatus(index + 1) === 'complete'" class="h-4 w-4 shrink-0 text-emerald-700" />
+                            <CircleAlert v-else-if="stepStatus(index + 1) === 'warning'" class="h-4 w-4 shrink-0 text-amber-700" />
+                        </span>
                     </button>
                 </div>
+
+                <Alert v-if="currentStepFeedback" class="mb-5" :tone="currentStepFeedbackTone" title="Step check" :description="currentStepFeedback" />
 
                 <div v-if="step === 1" class="grid gap-5">
                     <div class="flex flex-wrap items-center justify-between gap-3">
                         <div>
-                            <h3 class="text-lg font-bold text-slate-950">Products</h3>
-                            <p class="text-sm text-slate-500">Add every production line item before configuring options and artwork.</p>
+                            <h3 class="panel-title">Products</h3>
+                            <p class="panel-caption">Add every production line item before configuring options and artwork.</p>
                         </div>
                         <Button variant="outline" @click="addItem"><Plus class="h-4 w-4" /> Item</Button>
                     </div>
 
                     <div class="grid gap-3 lg:grid-cols-[240px_1fr]">
                         <div class="grid gap-2">
-                            <button
+                            <div
                                 v-for="(item, index) in items"
                                 :key="item.id"
-                                :class="['rounded-md border p-3 text-left text-sm', activeIndex === index ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-white']"
-                                @click="activeIndex = index"
+                                class="grid grid-cols-[1fr_auto] gap-2"
                             >
-                                <p class="font-bold text-slate-950">Item {{ index + 1 }}</p>
-                                <p class="mt-1 text-slate-500">{{ variantFor(item)?.sku ?? 'No product selected' }}</p>
-                                <p class="mt-1 text-xs text-slate-500">{{ money(itemSubtotal(item)) }}</p>
-                            </button>
+                                <button
+                                    :class="['rounded-2xl p-3 text-left text-sm transition-colors', activeIndex === index ? 'bg-zinc-200/60' : 'bg-white hover:bg-zinc-200/50']"
+                                    @click="activeIndex = index"
+                                >
+                                    <p class="font-semibold text-[#18181b]">Item {{ index + 1 }}</p>
+                                    <p class="mt-1 text-[#71717a]">{{ variantFor(item)?.sku ?? 'No product selected' }}</p>
+                                    <p class="mt-1 text-xs text-[#71717a]">{{ money(itemSubtotal(item)) }}</p>
+                                </button>
+                                <Button
+                                    v-if="items.length > 1"
+                                    variant="ghost"
+                                    size="icon"
+                                    class="h-full min-h-[44px] text-red-700 hover:text-red-800"
+                                    :aria-label="`Remove item ${index + 1}`"
+                                    :title="`Remove item ${index + 1}`"
+                                    @click="removeItem(index)"
+                                >
+                                    <Trash2 class="h-4 w-4" />
+                                </Button>
+                            </div>
                         </div>
 
-                        <div class="grid gap-4 rounded-md border border-slate-200 p-4">
+                        <div class="grid gap-4 rounded-lg border border-zinc-200 bg-white p-4">
                             <Select v-model="activeItem.product_type_id" label="Product type" @update:model-value="resetVariant(activeItem)">
                                 <option value="">Choose product type</option>
                                 <option v-for="type in store.productTypes" :key="type.id" :value="type.id">{{ type.name }}</option>
@@ -507,15 +816,15 @@ onBeforeUnmount(() => {
                                 </option>
                             </Select>
 
-                            <div v-if="activeVariant" class="rounded-md bg-slate-50 p-4">
+                            <div v-if="activeVariant" class="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
                                 <div class="flex items-start justify-between gap-4">
                                     <div>
-                                        <h4 class="font-bold text-slate-950">{{ activeVariant.name }}</h4>
-                                        <p class="text-sm text-slate-500">{{ activeVariant.product_type?.description }}</p>
+                                        <h4 class="font-semibold text-[#18181b]">{{ activeVariant.name }}</h4>
+                                        <p class="text-sm text-[#71717a]">{{ activeVariant.product_type?.description }}</p>
                                     </div>
                                     <Badge tone="info">{{ money(activeVariant.price_cents) }}</Badge>
                                 </div>
-                                <div class="mt-3 grid gap-2 text-sm text-slate-600 md:grid-cols-3">
+                                <div class="mt-3 grid gap-2 text-sm text-[#4c4546] md:grid-cols-3">
                                     <span><strong>Panels:</strong> {{ activeVariant.panel_count }}</span>
                                     <span><strong>Layout:</strong> {{ activeVariant.layout }}</span>
                                     <span><strong>Template:</strong> {{ activeVariant.template_url ?? '-' }}</span>
@@ -525,13 +834,13 @@ onBeforeUnmount(() => {
                     </div>
 
                     <div class="flex justify-end">
-                        <Button :disabled="!allConfigured" @click="step = 2">Next</Button>
+                        <Button @click="goToStep(2)">Next</Button>
                     </div>
                 </div>
 
                 <div v-else-if="step === 2" class="grid gap-5">
                     <div class="flex items-center justify-between gap-3">
-                        <h3 class="text-lg font-bold text-slate-950">Configure Item {{ activeIndex + 1 }}</h3>
+                        <h3 class="panel-title">Configure Item {{ activeIndex + 1 }}</h3>
                         <Button v-if="items.length > 1" variant="ghost" @click="removeItem(activeIndex)"><Trash2 class="h-4 w-4" /> Remove</Button>
                     </div>
                     <div class="grid gap-4 md:grid-cols-2">
@@ -548,15 +857,15 @@ onBeforeUnmount(() => {
                     </Select>
                     <Textarea v-model="activeItem.extras" label="Extras / production note" rows="3" placeholder="Frame handling, panel note, personalization, or packaging instruction..." />
                     <div class="flex justify-between">
-                        <Button variant="outline" @click="step = 1">Back</Button>
-                        <Button :disabled="!allOptionsReady" @click="step = 3">Next</Button>
+                        <Button variant="outline" @click="goToStep(1)">Back</Button>
+                        <Button @click="goToStep(3)">Next</Button>
                     </div>
                 </div>
 
                 <div v-else-if="step === 3" class="grid gap-5">
                     <div class="flex items-center gap-2">
-                        <ImageUp class="h-5 w-5 text-teal-700" />
-                        <h3 class="text-lg font-bold text-slate-950">Artwork Upload</h3>
+                        <ImageUp class="h-5 w-5 text-[#18181b]" />
+                        <h3 class="panel-title">Artwork Upload</h3>
                     </div>
                     <div class="grid gap-4 md:grid-cols-[1fr_260px]">
                         <FileDropzone
@@ -565,9 +874,9 @@ onBeforeUnmount(() => {
                             accept="image/*,.pdf"
                             @selected="uploadArtwork"
                         />
-                        <div class="rounded-md border border-slate-200 p-4">
-                            <p class="text-sm font-bold text-slate-950">Item {{ activeIndex + 1 }}</p>
-                            <p class="mt-1 text-sm text-slate-500">{{ variantFor(activeItem)?.name ?? 'No product selected' }}</p>
+                        <div class="rounded-2xl bg-white p-4">
+                            <p class="text-sm font-semibold text-[#18181b]">Item {{ activeIndex + 1 }}</p>
+                            <p class="mt-1 text-sm text-[#71717a]">{{ variantFor(activeItem)?.name ?? 'No product selected' }}</p>
                             <Badge v-if="activeItem.artwork" class="mt-3" tone="success">{{ activeItem.artwork.original_name }}</Badge>
                             <Badge v-else class="mt-3" tone="warning">{{ uploading ? 'Uploading...' : 'Artwork required' }}</Badge>
                         </div>
@@ -576,22 +885,22 @@ onBeforeUnmount(() => {
                         <button
                             v-for="(item, index) in items"
                             :key="item.id"
-                            :class="['rounded-md border px-3 py-2 text-left text-sm', activeIndex === index ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-white']"
+                            :class="['rounded-2xl px-3 py-2 text-left text-sm transition-colors', activeIndex === index ? 'bg-zinc-200/60 text-[#18181b]' : 'bg-white text-[#4c4546] hover:bg-zinc-200/50']"
                             @click="activeIndex = index"
                         >
                             Item {{ index + 1 }} · {{ variantFor(item)?.sku ?? 'No SKU' }} · {{ item.artwork?.original_name ?? 'No artwork' }}
                         </button>
                     </div>
                     <div class="flex justify-between">
-                        <Button variant="outline" @click="step = 2">Back</Button>
-                        <Button :disabled="!allArtworkReady" @click="step = 4">Next</Button>
+                        <Button variant="outline" @click="goToStep(2)">Back</Button>
+                        <Button @click="goToStep(4)">Next</Button>
                     </div>
                 </div>
 
                 <div v-else-if="step === 4" class="grid gap-5">
                     <div class="flex items-center gap-2">
-                        <Truck class="h-5 w-5 text-teal-700" />
-                        <h3 class="text-lg font-bold text-slate-950">Shipping</h3>
+                        <Truck class="h-5 w-5 text-[#18181b]" />
+                        <h3 class="panel-title">Shipping</h3>
                     </div>
                     <div class="grid gap-4 md:grid-cols-2">
                         <Input v-model="shipping.customer_name" label="Customer name" required />
@@ -605,35 +914,35 @@ onBeforeUnmount(() => {
                     </div>
                     <Textarea v-model="notes" label="Internal notes" rows="3" placeholder="Any order-level handling notes..." />
                     <div class="flex justify-between">
-                        <Button variant="outline" @click="step = 3">Back</Button>
-                        <Button :disabled="!shippingReady" @click="step = isPaymentStep ? 5 : 5">Next</Button>
+                        <Button variant="outline" @click="goToStep(3)">Back</Button>
+                        <Button @click="goToStep(5)">Next</Button>
                     </div>
                 </div>
 
                 <div v-else-if="step === 5 && !isPaymentStep" class="grid gap-5">
                     <div class="flex items-center gap-2">
-                        <Layers3 class="h-5 w-5 text-teal-700" />
-                        <h3 class="text-lg font-bold text-slate-950">Summary</h3>
+                        <Layers3 class="h-5 w-5 text-[#18181b]" />
+                        <h3 class="panel-title">Summary</h3>
                     </div>
                     <div class="grid gap-3">
-                        <div v-for="(item, index) in items" :key="item.id" class="rounded-md border border-slate-200 p-4">
+                        <div v-for="(item, index) in items" :key="item.id" class="rounded-2xl bg-white p-4">
                             <div class="flex flex-wrap items-start justify-between gap-3">
                                 <div>
-                                    <p class="text-sm font-semibold text-slate-500">Item {{ index + 1 }}</p>
-                                    <h4 class="font-bold text-slate-950">{{ variantFor(item)?.name }}</h4>
-                                    <p class="text-sm text-slate-600">{{ item.quantity }} unit · {{ item.print_option }} · {{ item.hanging_option || 'No hanger' }}</p>
-                                    <p class="mt-1 text-sm text-slate-500">{{ item.artwork?.original_name }}</p>
+                                    <p class="text-sm font-semibold text-[#71717a]">Item {{ index + 1 }}</p>
+                                    <h4 class="font-semibold text-[#18181b]">{{ variantFor(item)?.name }}</h4>
+                                    <p class="text-sm text-[#4c4546]">{{ item.quantity }} unit · {{ item.print_option }} · {{ item.hanging_option || 'No hanger' }}</p>
+                                    <p class="mt-1 text-sm text-[#71717a]">{{ item.artwork?.original_name }}</p>
                                 </div>
                                 <Badge tone="info">{{ money(itemSubtotal(item)) }}</Badge>
                             </div>
                         </div>
                     </div>
-                    <div class="rounded-md bg-slate-50 p-4 text-sm text-slate-700">
-                        <p class="font-bold text-slate-950">{{ shipping.customer_name }}</p>
+                    <div class="rounded-2xl bg-white p-4 text-sm text-[#4c4546]">
+                        <p class="font-semibold text-[#18181b]">{{ shipping.customer_name }}</p>
                         <p>{{ shipping.line1 }}, {{ shipping.city }}, {{ shipping.state }} {{ shipping.postal_code }}, {{ shipping.country }}</p>
                     </div>
                     <div class="flex flex-wrap justify-between gap-2">
-                        <Button variant="outline" @click="step = 4">Back</Button>
+                        <Button variant="outline" @click="goToStep(4)">Back</Button>
                         <div class="flex flex-wrap gap-2">
                             <Button variant="outline" :disabled="submitting" @click="submit('draft')"><Save class="h-4 w-4" /> Create draft</Button>
                             <Button :disabled="submitting" @click="submit('verified')"><Check class="h-4 w-4" /> Submit order</Button>
@@ -643,20 +952,20 @@ onBeforeUnmount(() => {
 
                 <div v-else-if="isPaymentStep" class="grid gap-5">
                     <div class="flex items-center gap-2">
-                        <CreditCard class="h-5 w-5 text-teal-700" />
-                        <h3 class="text-lg font-bold text-slate-950">Payment</h3>
+                        <CreditCard class="h-5 w-5 text-[#18181b]" />
+                        <h3 class="panel-title">Payment</h3>
                     </div>
 
-                    <div class="rounded-md border border-slate-200 p-4">
-                        <p class="mb-3 text-sm text-slate-600">Kredi kartı ile güvenli ödeme. Tutar: <strong>{{ money(subtotalCents) }}</strong>.</p>
-                        <div ref="stripeCardMount" class="min-h-[48px] rounded-md border border-slate-200 p-3"></div>
+                    <div class="rounded-2xl bg-white p-4">
+                        <p class="mb-3 text-sm text-[#4c4546]">Kredi kartı ile güvenli ödeme. Tutar: <strong>{{ money(subtotalCents) }}</strong>.</p>
+                        <div ref="stripeCardMount" class="min-h-[48px] rounded-lg border border-zinc-200 bg-[#f9f9f9] p-3"></div>
                     </div>
 
                     <Alert v-if="paymentMessage" tone="success" title="Ödeme hazırlanıyor" :description="paymentMessage" />
                     <Alert v-if="paymentError" tone="danger" title="Ödeme hatası" :description="paymentError" />
 
                     <div class="flex flex-wrap justify-between gap-2">
-                        <Button variant="outline" @click="step = 5">Back</Button>
+                        <Button variant="outline" @click="goToStep(5)">Back</Button>
                         <Button :disabled="paymentSubmitting" @click="submitPayment">
                             <Check class="h-4 w-4" />
                             {{ paymentSubmitting ? 'Ödeme işleniyor...' : `Pay ${money(subtotalCents)}` }}
@@ -667,23 +976,23 @@ onBeforeUnmount(() => {
 
             <Card class="h-fit 2xl:sticky 2xl:top-24">
                 <div class="mb-4 flex items-center gap-2">
-                    <PackagePlus class="h-5 w-5 text-teal-700" />
-                    <h3 class="text-lg font-bold text-slate-950">Order Summary</h3>
+                    <PackagePlus class="h-5 w-5 text-[#18181b]" />
+                    <h3 class="panel-title">Order Summary</h3>
                 </div>
                 <div v-if="items.some((item) => item.product_variant_id)" class="grid gap-3">
-                    <div v-for="(item, index) in items" :key="item.id" class="rounded-md border border-slate-200 p-3">
+                    <div v-for="(item, index) in items" :key="item.id" class="rounded-2xl bg-white p-3">
                         <div class="flex items-start justify-between gap-3">
                             <div>
-                                <p class="font-semibold text-slate-950">Item {{ index + 1 }}</p>
-                                <p class="text-sm text-slate-500">{{ variantFor(item)?.sku ?? 'No product' }}</p>
+                                <p class="font-semibold text-[#18181b]">Item {{ index + 1 }}</p>
+                                <p class="text-sm text-[#71717a]">{{ variantFor(item)?.sku ?? 'No product' }}</p>
                             </div>
                             <Badge tone="info">{{ money(itemSubtotal(item)) }}</Badge>
                         </div>
                     </div>
-                    <div class="border-t border-slate-200 pt-4">
+                    <div class="border-t border-zinc-200/70 pt-4">
                         <div class="flex items-center justify-between">
-                            <span class="font-semibold text-slate-600">Subtotal</span>
-                            <span class="text-xl font-bold text-slate-950">{{ money(subtotalCents) }}</span>
+                            <span class="font-semibold text-[#4c4546]">Subtotal</span>
+                            <span class="text-xl font-bold text-[#18181b]">{{ money(subtotalCents) }}</span>
                         </div>
                     </div>
                 </div>

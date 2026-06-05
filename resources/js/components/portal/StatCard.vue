@@ -10,15 +10,15 @@ defineProps<{
 </script>
 
 <template>
-    <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <div class="flex items-start justify-between gap-3">
-            <div>
-                <p class="text-sm font-medium text-slate-500">{{ label }}</p>
-                <p class="mt-2 text-3xl font-bold tracking-tight text-slate-950">{{ value }}</p>
-                <p v-if="caption" class="mt-1 text-sm text-slate-500">{{ caption }}</p>
+    <div class="min-w-0 rounded-lg border border-zinc-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:border-zinc-300">
+        <div class="flex items-start justify-between gap-4">
+            <div class="min-w-0">
+                <p class="truncate text-[12px] font-semibold text-zinc-500">{{ label }}</p>
+                <p class="mt-2 text-2xl font-semibold leading-none text-zinc-950">{{ value }}</p>
+                <p v-if="caption" class="mt-2 line-clamp-2 text-xs leading-5 text-zinc-500">{{ caption }}</p>
             </div>
-            <div class="rounded-md bg-teal-50 p-2 text-teal-700">
-                <component :is="icon" class="h-5 w-5" />
+            <div class="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-zinc-200 bg-zinc-50 text-zinc-700">
+                <component :is="icon" class="h-4 w-4 stroke-[1.8]" />
             </div>
         </div>
     </div>

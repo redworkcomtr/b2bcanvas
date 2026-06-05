@@ -231,20 +231,20 @@ async function uploadTemplate(file: File) {
 </script>
 
 <template>
-    <div class="grid gap-5">
+    <div class="app-page">
         <div class="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
-            <div>
-                <h2 class="text-2xl font-bold text-slate-950">Product Catalog</h2>
-                <p class="text-slate-600">Manage product types, variants, option pricing, templates, and catalog media.</p>
+            <div class="page-heading">
+                <h2>Product Catalog</h2>
+                <p>Manage product types, variants, option pricing, templates, and catalog media.</p>
             </div>
-            <Button variant="outline" @click="resetTypeForm"><Plus class="h-4 w-4" /> New product type</Button>
+            <Button variant="outline" size="sm" @click="resetTypeForm"><Plus class="h-4 w-4" /> New product type</Button>
         </div>
 
         <div class="grid gap-5 xl:grid-cols-[360px_1fr]">
             <Card>
                 <div class="mb-4 flex items-center gap-2">
-                    <Boxes class="h-5 w-5 text-teal-700" />
-                    <h3 class="text-lg font-bold text-slate-950">Catalog Types</h3>
+                    <Boxes class="h-5 w-5 text-[#18181b]" />
+                    <h3 class="panel-title">Catalog Types</h3>
                 </div>
 
                 <div class="grid gap-3">
@@ -252,15 +252,15 @@ async function uploadTemplate(file: File) {
                         v-for="type in store.productTypes"
                         :key="type.id"
                         :class="[
-                            'rounded-md border p-3 text-left transition',
-                            selectedType?.id === type.id ? 'border-teal-300 bg-teal-50/70' : 'border-slate-200 hover:border-teal-200 hover:bg-slate-50',
+                            'rounded-2xl p-3 text-left transition-colors',
+                            selectedType?.id === type.id ? 'bg-zinc-200/60 text-[#18181b]' : 'bg-white hover:bg-zinc-200/50',
                         ]"
                         @click="selectedTypeId = String(type.id)"
                     >
                         <div class="flex items-start justify-between gap-3">
                             <div>
-                                <p class="font-bold text-slate-950">{{ type.name }}</p>
-                                <p class="text-sm text-slate-500">{{ type.code }}</p>
+                                <p class="text-sm font-semibold text-[#18181b]">{{ type.name }}</p>
+                                <p class="text-sm text-[#71717a]">{{ type.code }}</p>
                             </div>
                             <Badge tone="info">{{ type.variants.length }} variants</Badge>
                         </div>
@@ -272,8 +272,8 @@ async function uploadTemplate(file: File) {
             <div class="grid gap-5">
                 <Card>
                     <div class="mb-4 flex items-center gap-2">
-                        <Pencil class="h-5 w-5 text-teal-700" />
-                        <h3 class="text-lg font-bold text-slate-950">Product Type</h3>
+                        <Pencil class="h-5 w-5 text-[#18181b]" />
+                        <h3 class="panel-title">Product Type</h3>
                     </div>
                     <div class="grid gap-4 lg:grid-cols-[1fr_280px]">
                         <div class="grid gap-4">
@@ -283,14 +283,14 @@ async function uploadTemplate(file: File) {
                             </div>
                             <Textarea v-model="typeForm.description" label="Description" :rows="4" placeholder="Production description and catalog notes" />
                             <Input v-model="typeForm.image_url" label="Image URL" placeholder="https://..." />
-                            <p v-if="uploadMessage" class="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">{{ uploadMessage }}</p>
+                            <p v-if="uploadMessage" class="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">{{ uploadMessage }}</p>
                             <div class="flex flex-wrap gap-2">
                                 <Button :disabled="!typeForm.name || !typeForm.code" @click="saveType">{{ selectedTypeId ? 'Update type' : 'Create type' }}</Button>
                                 <Button v-if="selectedTypeId" variant="destructive" @click="deleteType"><Trash2 class="h-4 w-4" /> Delete type</Button>
                             </div>
                         </div>
                         <div class="grid gap-3">
-                            <img v-if="typeForm.image_url" :src="typeForm.image_url" :alt="typeForm.name" class="aspect-[4/3] rounded-md border border-slate-200 object-cover">
+                            <img v-if="typeForm.image_url" :src="typeForm.image_url" :alt="typeForm.name" class="aspect-[4/3] rounded-2xl border border-zinc-200/70 object-cover">
                             <FileDropzone label="Upload product image" description="JPEG, PNG, WebP; stored with checksum and scan state." accept="image/*" @selected="uploadProductImage" />
                         </div>
                     </div>
@@ -300,19 +300,19 @@ async function uploadTemplate(file: File) {
                     <Card>
                         <div class="mb-4 flex items-center justify-between gap-3">
                             <div class="flex items-center gap-2">
-                                <PackagePlus class="h-5 w-5 text-teal-700" />
-                                <h3 class="text-lg font-bold text-slate-950">Variants</h3>
+                                <PackagePlus class="h-5 w-5 text-[#18181b]" />
+                                <h3 class="panel-title">Variants</h3>
                             </div>
                             <Button variant="outline" size="sm" @click="resetVariantForm"><Plus class="h-4 w-4" /> New variant</Button>
                         </div>
 
                         <DataTable min-width="760px">
-                            <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+                            <thead>
                                 <tr><th class="px-4 py-3">SKU</th><th class="px-4 py-3">Layout</th><th class="px-4 py-3">Panels</th><th class="px-4 py-3">Price</th></tr>
                             </thead>
-                            <tbody class="divide-y divide-slate-200">
-                                <tr v-for="variant in selectedType.variants" :key="variant.id" class="cursor-pointer hover:bg-slate-50" @click="selectedVariantId = String(variant.id)">
-                                    <td class="px-4 py-3"><p class="font-semibold text-slate-950">{{ variant.sku }}</p><p class="text-slate-500">{{ variant.name }}</p></td>
+                            <tbody class="divide-y divide-zinc-100">
+                                <tr v-for="variant in selectedType.variants" :key="variant.id" class="cursor-pointer hover:bg-zinc-100/50" @click="selectedVariantId = String(variant.id)">
+                                    <td class="px-4 py-3"><p class="font-semibold text-[#18181b]">{{ variant.sku }}</p><p class="text-[#71717a]">{{ variant.name }}</p></td>
                                     <td class="px-4 py-3">{{ variant.layout ?? '-' }}</td>
                                     <td class="px-4 py-3">{{ variant.panel_count }}</td>
                                     <td class="px-4 py-3">{{ money(variant.price_cents) }}</td>
@@ -342,20 +342,20 @@ async function uploadTemplate(file: File) {
                     <Card>
                         <div class="mb-4 flex items-center justify-between gap-3">
                             <div class="flex items-center gap-2">
-                                <FileText class="h-5 w-5 text-teal-700" />
-                                <h3 class="text-lg font-bold text-slate-950">Options</h3>
+                                <FileText class="h-5 w-5 text-[#18181b]" />
+                                <h3 class="panel-title">Options</h3>
                             </div>
                             <Button variant="outline" size="sm" @click="resetOptionForm"><Plus class="h-4 w-4" /> New option</Button>
                         </div>
 
                         <DataTable min-width="680px">
-                            <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+                            <thead>
                                 <tr><th class="px-4 py-3">Group</th><th class="px-4 py-3">Name</th><th class="px-4 py-3">Code</th><th class="px-4 py-3">Price</th></tr>
                             </thead>
-                            <tbody class="divide-y divide-slate-200">
-                                <tr v-for="option in selectedType.options" :key="option.id" class="cursor-pointer hover:bg-slate-50" @click="selectedOptionId = String(option.id)">
+                            <tbody class="divide-y divide-zinc-100">
+                                <tr v-for="option in selectedType.options" :key="option.id" class="cursor-pointer hover:bg-zinc-100/50" @click="selectedOptionId = String(option.id)">
                                     <td class="px-4 py-3">{{ option.group }}</td>
-                                    <td class="px-4 py-3 font-semibold text-slate-950">{{ option.name }}</td>
+                                    <td class="px-4 py-3 font-semibold text-[#18181b]">{{ option.name }}</td>
                                     <td class="px-4 py-3">{{ option.code }}</td>
                                     <td class="px-4 py-3">{{ money(option.price_cents) }}</td>
                                 </tr>

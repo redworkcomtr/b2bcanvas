@@ -31,22 +31,22 @@ async function submit() {
 </script>
 
 <template>
-    <main class="grid min-h-screen place-items-center bg-[hsl(var(--background))] p-4">
+    <main class="grid min-h-screen place-items-center bg-[#f9f9f9] p-4">
         <Card class="w-full max-w-md">
             <div class="mb-6">
-                <div class="mb-4 grid h-12 w-12 place-items-center rounded-md bg-teal-50 text-teal-800">
+                <div class="mb-4 grid h-12 w-12 place-items-center rounded-xl bg-white text-[#18181b]">
                     <MailCheck class="h-6 w-6" />
                 </div>
-                <h2 class="text-2xl font-bold text-slate-950">Reset password</h2>
-                <p class="mt-1 text-sm text-slate-500">Send reset instructions to a workspace user.</p>
+                <h2 class="text-2xl font-bold text-[#18181b]">Reset password</h2>
+                <p class="mt-1 text-sm text-[#71717a]">Send reset instructions to a workspace user.</p>
             </div>
 
             <form class="grid gap-4" @submit.prevent="submit">
                 <Input v-model="email" label="Email" type="email" required placeholder="name@company.com" />
-                <p v-if="message" class="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">{{ message }}</p>
-                <p v-if="error" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{{ error }}</p>
+                <p v-if="message" class="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">{{ message }}</p>
+                <p v-if="error" class="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{{ error }}</p>
                 <Button type="submit" :disabled="loading">{{ loading ? 'Sending...' : 'Send reset instructions' }}</Button>
-                <RouterLink class="text-center text-sm font-semibold text-teal-700 hover:text-teal-900" to="/login">Back to sign in</RouterLink>
+                <RouterLink class="text-center text-sm font-semibold text-[#18181b] hover:text-black" to="/login">Back to sign in</RouterLink>
             </form>
         </Card>
     </main>

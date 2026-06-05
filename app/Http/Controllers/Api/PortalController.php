@@ -14,6 +14,7 @@ use App\Models\RequiredAction;
 use App\Models\SavedView;
 use App\Models\User;
 use App\Models\UserInvite;
+use App\Support\NotificationEventCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -50,8 +51,8 @@ class PortalController extends Controller
             ->toArray();
 
         $orderStatuses = ['draft', 'validation_failed', 'action_needed', 'verified', 'submitted', 'in_production', 'shipped', 'closed', 'cancelled'];
-        $importStatuses = ['preview', 'partial', 'committed', 'error'];
-        $importRowStatuses = ['ready', 'needs_action', 'committed', 'invalid', 'error'];
+        $importStatuses = ['preview', 'processing', 'partial', 'committed', 'error'];
+        $importRowStatuses = ['ready', 'needs_action', 'committed', 'skipped', 'invalid', 'error'];
 
         $reportingMetrics = [
             'orders_total' => Order::query()->forTenant($tenantId)->count(),
@@ -126,6 +127,7 @@ class PortalController extends Controller
                 ->where('user_id', $user->id)
                 ->orderBy('event')
                 ->get(),
+            'notificationEvents' => NotificationEventCatalog::all(),
             'users' => User::query()
                 ->where('tenant_id', $tenantId)
                 ->orderByRaw("case role when 'owner' then 1 when 'admin' then 2 when 'operations' then 3 when 'support' then 4 else 5 end")

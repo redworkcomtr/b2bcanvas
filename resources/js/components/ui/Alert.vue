@@ -11,7 +11,7 @@ const props = withDefaults(defineProps<{
 const slots = useSlots();
 
 const classes = computed(() => ({
-    neutral: 'border-slate-200 bg-slate-50 text-slate-700',
+    neutral: 'border-zinc-200 bg-zinc-50 text-zinc-700',
     success: 'border-emerald-200 bg-emerald-50 text-emerald-800',
     warning: 'border-amber-200 bg-amber-50 text-amber-900',
     danger: 'border-red-200 bg-red-50 text-red-800',
@@ -20,9 +20,9 @@ const classes = computed(() => ({
 </script>
 
 <template>
-    <div :class="['rounded-lg border p-4 text-sm', classes]">
-        <p v-if="title" class="font-bold">{{ title }}</p>
-        <p v-if="description" :class="title ? 'mt-1' : ''">{{ description }}</p>
+    <div :class="['rounded-lg border p-4 text-[14px]', classes]">
+        <p v-if="title" class="font-semibold">{{ title }}</p>
+        <p v-if="description" :class="['leading-6', title ? 'mt-1' : '']">{{ description }}</p>
         <div v-if="slots.default" :class="title || description ? 'mt-1' : ''">
             <slot />
         </div>

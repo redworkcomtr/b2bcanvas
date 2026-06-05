@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\MediaFile;
+use App\Models\Order;
 use App\Models\ProductVariant;
 use App\Models\RequiredAction;
 use App\Services\RequiredActionWorkflowService;
@@ -59,6 +61,10 @@ class RequiredActionController extends Controller
             'resolution.shipping_address.state' => ['nullable', 'string', 'max:120'],
             'resolution.shipping_address.postal_code' => ['nullable', 'string', 'max:40'],
             'resolution.shipping_address.country' => ['nullable', 'string', 'max:80'],
+            'resolution.artwork_media_file_id' => ['nullable', 'integer', 'exists:media_files,id'],
+            'resolution.replacement_media_file_id' => ['nullable', 'integer', 'exists:media_files,id'],
+            'resolution.decision' => ['nullable', 'string', 'in:skip,process_with_new_number,cancel_existing,acknowledge'],
+            'resolution.replacement_order_number' => ['nullable', 'string', 'max:80'],
             'resolution.note' => ['nullable', 'string', 'max:5000'],
             'comment' => ['nullable', 'string', 'max:5000'],
         ]);
@@ -76,6 +82,34 @@ class RequiredActionController extends Controller
                     'resolution.product_variant_id' => ['The selected variant does not belong to this tenant.'],
                 ]);
             }
+        }
+
+        $mediaId = $resolution['artwork_media_file_id'] ?? $resolution['replacement_media_file_id'] ?? null;
+        if ($mediaId) {
+            $belongsToTenant = MediaFile::query()
+                ->forTenant($request->user()->tenant_id)
+                ->whereKey($mediaId)
+                ->exists();
+
+            if (! $belongsToTenant) {
+                throw ValidationException::withMessages([
+                    'resolution.artwork_media_file_id' => ['The selected artwork file does not belong to this tenant.'],
+                ]);
+            }
+        }
+
+        if (
+            $requiredAction->type === 'duplicate_order'
+            && ($resolution['decision'] ?? null) === 'process_with_new_number'
+            && isset($resolution['replacement_order_number'])
+            && Order::query()
+                ->forTenant($request->user()->tenant_id)
+                ->where('order_number', $resolution['replacement_order_number'])
+                ->exists()
+        ) {
+            throw ValidationException::withMessages([
+                'resolution.replacement_order_number' => ['The replacement order number is already in use.'],
+            ]);
         }
 
         return response()->json($workflow->resolve(

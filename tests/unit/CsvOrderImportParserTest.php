@@ -22,4 +22,19 @@ class CsvOrderImportParserTest extends TestCase
         $this->assertSame('invalid', $result['rows'][1]['status']);
         $this->assertArrayHasKey(3, $result['errors']);
     }
+
+    public function test_it_normalizes_reference_portal_headers(): void
+    {
+        $csv = implode("\n", [
+            'clientOrderId,items[0].name,items[0].clientProductCode,items[0].quantity,shipToCustomer.fullName,shipToCustomer.address1,shipToCustomer.city,shipToCustomer.state,shipToCustomer.zip,shipToCustomer.country',
+            'REF-100,Canvas Print,SKU-1,1,Ada Lovelace,1 Main St,Austin,TX,78701,US',
+        ]);
+
+        $result = (new CsvOrderImportParser)->parse($csv);
+
+        $this->assertSame('valid', $result['rows'][0]['status']);
+        $this->assertSame('REF-100', $result['rows'][0]['payload']['order_number']);
+        $this->assertSame('SKU-1', $result['rows'][0]['payload']['item_sku']);
+        $this->assertSame('Ada Lovelace', $result['rows'][0]['payload']['customer_name']);
+    }
 }

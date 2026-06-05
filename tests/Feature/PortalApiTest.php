@@ -81,9 +81,11 @@ class PortalApiTest extends TestCase
                 'issues',
                 'requiredActions',
                 'notificationSubscriptions',
+                'notificationEvents',
                 'users',
                 'userInvites',
-            ]);
+            ])
+            ->assertJsonPath('notificationEvents.ORDER_PAYMENT_COMPLETED', 'Order payment completed');
     }
 
     public function test_portal_payload_includes_reporting_metrics(): void
@@ -533,6 +535,78 @@ class PortalApiTest extends TestCase
         $this->assertDatabaseHas('required_actions', ['type' => 'product_mapping_required']);
     }
 
+    public function test_xlsx_import_preview_uses_backend_parser(): void
+    {
+        if (! class_exists(\ZipArchive::class)) {
+            $this->markTestSkipped('The PHP zip extension is required for XLSX import tests.');
+        }
+
+        $this->seed();
+        $this->actingAs(User::query()->where('email', 'selin@example.test')->firstOrFail());
+
+        $xlsx = $this->fakeXlsx([
+            ['order_number', 'item_name', 'item_sku', 'quantity', 'customer_name', 'address_line_1', 'city', 'state', 'postal_code', 'country'],
+            ['WEB-XLSX-1', 'Framed Art Print-Black / 36" x 24"', 'MGC-FP-36x24_Black', '1', 'Jordan Lee', '101 Harbor Road', 'Seattle', 'WA', '98101', 'US'],
+        ]);
+
+        $response = $this->postJson('/api/orders/imports/preview', [
+            'file' => UploadedFile::fake()->createWithContent('orders.xlsx', $xlsx),
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('summary.total', 1)
+            ->assertJsonPath('summary.ready', 1)
+            ->assertJsonPath('rows.0.payload.order_number', 'WEB-XLSX-1');
+    }
+
+    public function test_duplicate_required_action_can_release_import_row_with_replacement_number(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $duplicateOrder = Order::query()->where('tenant_id', $owner->tenant_id)->firstOrFail();
+
+        $this->actingAs($owner);
+
+        $preview = $this->postJson('/api/orders/imports/preview', [
+            'csv' => implode("\n", [
+                'order_number,item_name,item_sku,quantity,customer_name,address_line_1,city,state,postal_code,country',
+                $duplicateOrder->order_number.',"Framed Art Print-Black / 36"" x 24""",MGC-FP-36x24_Black,1,Ada Lovelace,1 Main St,Austin,TX,78701,US',
+            ]),
+        ]);
+
+        $preview->assertOk()->assertJsonPath('summary.needs_action', 1);
+
+        $action = RequiredAction::query()
+            ->where('tenant_id', $owner->tenant_id)
+            ->where('type', 'duplicate_order')
+            ->where('status', 'open')
+            ->latest()
+            ->firstOrFail();
+
+        $this->postJson('/api/required-actions/'.$action->id.'/resolve', [
+            'resolution' => [
+                'decision' => 'process_with_new_number',
+                'replacement_order_number' => 'WEB-DUP-R1',
+            ],
+            'comment' => 'Approved duplicate row with a revised order number.',
+        ])->assertOk()
+            ->assertJsonPath('status', 'resolved');
+
+        $row = ImportRow::query()->where('import_id', $preview->json('import_id'))->firstOrFail();
+        $this->assertSame('ready', $row->status);
+        $this->assertSame('WEB-DUP-R1', $row->payload['order_number']);
+
+        $this->postJson('/api/orders/imports/'.$preview->json('import_id').'/commit')
+            ->assertOk()
+            ->assertJsonPath('created_orders', 1);
+
+        $this->assertDatabaseHas('orders', [
+            'tenant_id' => $owner->tenant_id,
+            'order_number' => 'WEB-DUP-R1',
+            'status' => 'verified',
+        ]);
+    }
+
     public function test_order_queries_are_tenant_isolated(): void
     {
         $this->seed();
@@ -975,6 +1049,52 @@ class PortalApiTest extends TestCase
         $this->patchJson('/api/users/'.$otherUser->id, ['active' => false])->assertForbidden();
     }
 
+    public function test_owner_can_update_tenant_settings(): void
+    {
+        $this->seed();
+        $owner = User::query()->where('email', 'selin@example.test')->firstOrFail();
+        $this->actingAs($owner);
+
+        $this->patchJson('/api/tenant', [
+            'name' => 'Atelier Canvas Pro',
+            'support_email' => 'ops@ateliercanvas.test',
+            'settings' => [
+                'currency' => 'EUR',
+                'timezone' => 'Europe/Istanbul',
+                'default_shipping_service' => 'DHL Express',
+                'order_prefix' => 'AT',
+            ],
+        ])->assertOk()
+            ->assertJsonPath('name', 'Atelier Canvas Pro')
+            ->assertJsonPath('support_email', 'ops@ateliercanvas.test')
+            ->assertJsonPath('settings.currency', 'EUR')
+            ->assertJsonPath('settings.timezone', 'Europe/Istanbul')
+            ->assertJsonPath('settings.default_shipping_service', 'DHL Express');
+
+        $this->getJson('/api/portal')
+            ->assertOk()
+            ->assertJsonFragment(['manage_tenant'])
+            ->assertJsonPath('tenant.name', 'Atelier Canvas Pro');
+
+        $this->assertDatabaseHas('audit_logs', [
+            'tenant_id' => $owner->tenant_id,
+            'user_id' => $owner->id,
+            'event' => 'tenant.updated',
+            'auditable_type' => Tenant::class,
+        ]);
+    }
+
+    public function test_non_owner_cannot_update_tenant_settings(): void
+    {
+        $this->seed();
+        $operations = User::query()->where('email', 'operations@example.test')->firstOrFail();
+        $this->actingAs($operations);
+
+        $this->patchJson('/api/tenant', [
+            'name' => 'Unauthorized rename',
+        ])->assertForbidden();
+    }
+
     public function test_owner_can_manage_product_catalog(): void
     {
         $this->seed();
@@ -1334,5 +1454,58 @@ class PortalApiTest extends TestCase
                 'priority' => 10,
             ]],
         ])->assertForbidden();
+    }
+
+    /**
+     * @param  array<int, array<int, string>>  $rows
+     */
+    private function fakeXlsx(array $rows): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'portal-test-xlsx-');
+        $zip = new \ZipArchive;
+        $zip->open($path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
+        $zip->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>');
+        $zip->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>');
+        $zip->addFromString('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Orders" sheetId="1" r:id="rId1"/></sheets></workbook>');
+        $zip->addFromString('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>');
+        $zip->addFromString('xl/worksheets/sheet1.xml', $this->worksheetXml($rows));
+        $zip->close();
+
+        $contents = (string) file_get_contents($path);
+        @unlink($path);
+
+        return $contents;
+    }
+
+    /**
+     * @param  array<int, array<int, string>>  $rows
+     */
+    private function worksheetXml(array $rows): string
+    {
+        $xmlRows = [];
+        foreach ($rows as $rowIndex => $row) {
+            $cells = [];
+            foreach ($row as $columnIndex => $value) {
+                $cell = $this->columnName($columnIndex).($rowIndex + 1);
+                $cells[] = '<c r="'.$cell.'" t="inlineStr"><is><t>'.htmlspecialchars($value, ENT_XML1).'</t></is></c>';
+            }
+            $xmlRows[] = '<row r="'.($rowIndex + 1).'">'.implode('', $cells).'</row>';
+        }
+
+        return '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'.implode('', $xmlRows).'</sheetData></worksheet>';
+    }
+
+    private function columnName(int $index): string
+    {
+        $name = '';
+        $index++;
+
+        while ($index > 0) {
+            $index--;
+            $name = chr(65 + ($index % 26)).$name;
+            $index = intdiv($index, 26);
+        }
+
+        return $name;
     }
 }

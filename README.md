@@ -18,21 +18,24 @@ Kullanıcı, ürün, sipariş, import, mapping, ticket, claim, required action v
 
 ## Lokal kurulum
 
+- `brew services start postgresql@16`
 - `cp .env.example .env`
 - `composer install`
+- `php artisan key:generate`
 - `php artisan migrate --force`
 - `npm install`
 - `npm run build`
 - `php artisan serve`
 
-Docker ile (AlmaLinux 9 tabanı):
-- `docker compose up --build`
-- Uygulama: `http://localhost:8010`
+Yerel PostgreSQL ayarları `.env.example` içinde hazır gelir:
+- DB: `b2bcanvas`
+- Test DB: `b2bcanvas_test`
+- Kullanıcı/şifre: `b2bcanvas` / `b2bcanvas`
 
 ## Production Readiness
 
-- `docker-compose.yml` içinde PostgreSQL, Redis, Mailpit ve MinIO yer alır.
-- Queue worker ve web servisleri ayrı containerlarda çalışır.
+- PostgreSQL yerelde Homebrew servisi, production'da managed PostgreSQL olarak çalışır.
+- Queue worker `php artisan queue:listen` veya Supervisor/Horizon ile çalıştırılır.
 - CI pipeline: `/.github/workflows/ci.yml`
 
 ---

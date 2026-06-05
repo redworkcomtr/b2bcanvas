@@ -6,6 +6,7 @@ use App\Events\NotificationRequested;
 use App\Models\AuditLog;
 use App\Models\Issue;
 use App\Models\User;
+use App\Support\NotificationEventCatalog;
 
 class IssueWorkflowService
 {
@@ -131,7 +132,7 @@ class IssueWorkflowService
         }
 
         NotificationRequested::dispatch(
-            'ORDER_ISSUE_COMMENT_ADDED',
+            NotificationEventCatalog::ORDER_ISSUE_COMMENT_ADDED,
             $issue->tenant_id,
             [
                 'order_number' => $order->order_number,

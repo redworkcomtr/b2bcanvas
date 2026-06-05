@@ -7,6 +7,7 @@ use App\Models\AuditLog;
 use App\Models\NotificationSubscription;
 use App\Models\User;
 use App\Models\UserInvite;
+use App\Support\NotificationEventCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -68,7 +69,7 @@ class UserController extends Controller
             ],
         );
 
-        foreach (['ORDER_SHIPPED', 'ORDER_ACTION_NEEDED', 'ORDER_ISSUE_COMMENT_ADDED', 'ORDER_VALIDATION_FAILED', 'ORDER_PAYMENT_COMPLETED'] as $event) {
+        foreach (NotificationEventCatalog::keys() as $event) {
             NotificationSubscription::query()->firstOrCreate([
                 'user_id' => $user->id,
                 'event' => $event,

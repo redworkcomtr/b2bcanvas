@@ -37,29 +37,26 @@ async function submit() {
 </script>
 
 <template>
-    <main class="grid min-h-screen bg-[hsl(var(--background))] lg:grid-cols-[1fr_520px]">
-        <section class="surface-grid hidden min-h-screen place-items-center bg-slate-950 p-12 text-white lg:grid">
-            <div class="max-w-xl">
-                <div class="mb-8 inline-flex h-14 w-14 items-center justify-center rounded-lg bg-white text-xl font-black text-slate-950">BC</div>
-                <p class="text-sm font-bold uppercase tracking-wide text-teal-200">B2B Canvas Operations</p>
-                <h1 class="mt-4 text-4xl font-bold tracking-tight">Secure fulfillment control for tenant teams.</h1>
-                <p class="mt-5 text-lg leading-8 text-slate-300">
-                    Session auth, tenant isolation, role-gated operations, audit-friendly actions, and a keyboard-first SaaS workspace.
-                </p>
-                <div class="mt-8 grid gap-3 text-sm text-slate-200">
-                    <div class="flex items-center gap-3"><ShieldCheck class="h-5 w-5 text-teal-300" /> Owner, admin, operations, support, and viewer roles</div>
-                    <div class="flex items-center gap-3"><ShieldCheck class="h-5 w-5 text-teal-300" /> Tenant-scoped API access by default</div>
-                    <div class="flex items-center gap-3"><ShieldCheck class="h-5 w-5 text-teal-300" /> User invitations and active/passive controls</div>
+    <main class="grid min-h-screen bg-[#f9f9f9] p-4 lg:grid-cols-[minmax(0,1fr)_480px] lg:p-4">
+        <section class="hidden min-h-[calc(100vh-2rem)] place-items-center rounded-[2rem] bg-white p-12 lg:grid">
+            <div class="w-full max-w-lg">
+                <div class="mb-8 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-black text-lg font-black text-white">BC</div>
+                <p class="text-sm font-semibold uppercase text-[#71717a]">B2B Canvas</p>
+                <h1 class="mt-3 max-w-md text-3xl font-bold leading-tight text-[#18181b]">Fulfillment operations portal</h1>
+                <div class="mt-8 grid max-w-sm gap-3 text-sm text-[#4c4546]">
+                    <div class="flex items-center gap-3 rounded-2xl bg-[#f5f5f5] px-3 py-2"><ShieldCheck class="h-5 w-5 text-[#18181b]" /> Orders</div>
+                    <div class="flex items-center gap-3 rounded-2xl bg-[#f5f5f5] px-3 py-2"><ShieldCheck class="h-5 w-5 text-[#18181b]" /> Product mappings</div>
+                    <div class="flex items-center gap-3 rounded-2xl bg-[#f5f5f5] px-3 py-2"><ShieldCheck class="h-5 w-5 text-[#18181b]" /> Tickets and claims</div>
                 </div>
             </div>
         </section>
 
-        <section class="flex min-h-screen items-center justify-center p-4 sm:p-8">
+        <section class="flex min-h-[calc(100vh-2rem)] items-center justify-center p-0 sm:p-8">
             <Card class="w-full max-w-md">
                 <div class="mb-6">
-                    <div class="mb-4 grid h-12 w-12 place-items-center rounded-md bg-slate-950 text-sm font-bold text-white lg:hidden">BC</div>
-                    <h2 class="text-2xl font-bold text-slate-950">Sign in</h2>
-                    <p class="mt-1 text-sm text-slate-500">Access your tenant fulfillment workspace.</p>
+                    <div class="mb-4 grid h-12 w-12 place-items-center rounded-xl bg-black text-sm font-bold text-white lg:hidden">BC</div>
+                    <h2 class="text-2xl font-bold text-[#18181b]">Sign in</h2>
+                    <p class="mt-1 text-sm text-[#71717a]">Access your tenant fulfillment workspace.</p>
                 </div>
 
                 <form class="grid gap-4" @submit.prevent="submit">
@@ -71,14 +68,14 @@ async function submit() {
                     </Input>
 
                     <div class="flex items-center justify-between gap-3 text-sm">
-                        <label class="inline-flex items-center gap-2 font-medium text-slate-700">
+                        <label class="inline-flex items-center gap-2 font-medium text-[#4c4546]">
                             <input v-model="form.remember" type="checkbox" class="h-4 w-4 rounded border-slate-300">
                             Remember me
                         </label>
-                        <RouterLink class="font-semibold text-teal-700 hover:text-teal-900" to="/forgot-password">Forgot password?</RouterLink>
+                        <RouterLink class="font-semibold text-[#18181b] hover:text-black" to="/forgot-password">Forgot password?</RouterLink>
                     </div>
 
-                    <p v-if="error" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{{ error }}</p>
+                    <p v-if="error" class="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{{ error }}</p>
 
                     <Button type="submit" :disabled="loading">
                         {{ loading ? 'Signing in...' : 'Sign in' }}

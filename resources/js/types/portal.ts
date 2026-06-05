@@ -3,6 +3,13 @@ export type Tenant = {
     name: string;
     slug: string;
     support_email: string | null;
+    settings: {
+        currency?: string | null;
+        timezone?: string | null;
+        default_shipping_service?: string | null;
+        order_prefix?: string | null;
+        [key: string]: unknown;
+    } | null;
 };
 
 export type User = {
@@ -335,6 +342,7 @@ export type PortalPayload = {
     issues: Issue[];
     requiredActions: RequiredAction[];
     notificationSubscriptions: NotificationSubscription[];
+    notificationEvents: Record<string, string>;
     users: User[];
     userInvites: UserInvite[];
 };

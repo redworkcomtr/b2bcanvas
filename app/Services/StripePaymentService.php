@@ -6,6 +6,7 @@ use App\Events\NotificationRequested;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\User;
+use App\Support\NotificationEventCatalog;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
@@ -319,7 +320,7 @@ class StripePaymentService
         }
 
         NotificationRequested::dispatch(
-            'ORDER_PAYMENT_COMPLETED',
+            NotificationEventCatalog::ORDER_PAYMENT_COMPLETED,
             $freshOrder->tenant_id,
             [
                 'order_id' => $freshOrder->id,

@@ -179,7 +179,7 @@ onMounted(() => {
 </script>
 
 <template>
-    <div v-if="order" class="grid gap-5">
+    <div v-if="order" class="app-page">
         <div class="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
             <div class="flex items-center gap-3">
                 <RouterLink to="/orders">
@@ -187,9 +187,9 @@ onMounted(() => {
                         <ArrowLeft class="h-5 w-5" />
                     </Button>
                 </RouterLink>
-                <div>
-                    <h2 class="text-2xl font-bold text-slate-950">{{ order.order_number }}</h2>
-                    <p class="text-slate-600">{{ order.customer_name }} · {{ order.shipping_service ?? 'No service selected' }}</p>
+                <div class="page-heading">
+                    <h2>{{ order.order_number }}</h2>
+                    <p>{{ order.customer_name }} · {{ order.shipping_service ?? 'No service selected' }}</p>
                 </div>
             </div>
             <div class="flex flex-wrap items-center gap-2">
@@ -206,10 +206,10 @@ onMounted(() => {
                 <Card>
                     <div class="flex flex-wrap items-start justify-between gap-4">
                         <div>
-                            <p class="text-sm font-semibold uppercase text-slate-500">Lifecycle</p>
-                            <h3 class="mt-1 text-xl font-bold text-slate-950">{{ displayStatus(order.status) }}</h3>
+                            <p class="text-xs font-semibold uppercase text-[#71717a]">Lifecycle</p>
+                            <h3 class="mt-1 text-xl font-semibold text-[#18181b]">{{ displayStatus(order.status) }}</h3>
                         </div>
-                        <div class="grid gap-1 text-sm text-slate-600 md:grid-cols-4 md:gap-6">
+                        <div class="grid gap-1 text-sm text-[#4c4546] md:grid-cols-4 md:gap-6">
                             <span><strong>Order:</strong> {{ dateLabel(order.order_date) }}</span>
                             <span><strong>Submitted:</strong> {{ dateLabel(order.submitted_at) }}</span>
                             <span><strong>Shipped:</strong> {{ dateLabel(order.shipped_at) }}</span>
@@ -221,8 +221,8 @@ onMounted(() => {
                 <Card>
                     <div class="mb-4 flex items-center justify-between gap-3">
                         <div class="flex items-center gap-2">
-                            <Truck class="h-5 w-5 text-teal-700" />
-                            <h3 class="text-lg font-bold text-slate-950">Shipping, Address, Tracking</h3>
+                            <Truck class="h-5 w-5 text-[#18181b]" />
+                            <h3 class="panel-title">Shipping, Address, Tracking</h3>
                         </div>
                         <Button :disabled="saving" size="sm" @click="saveAddress"><Save class="h-4 w-4" /> Save</Button>
                     </div>
@@ -240,7 +240,7 @@ onMounted(() => {
                         <Input v-model="addressForm.country" label="Country" required />
                     </div>
 
-                    <p class="mt-4 text-sm leading-6 text-slate-600">
+                    <p class="mt-4 text-sm leading-6 text-[#4c4546]">
                         Current: {{ order.customer_name }}, {{ address.line1 }}, {{ address.city }}, {{ address.state }} {{ address.postal_code }}, {{ address.country }}
                     </p>
                 </Card>
@@ -248,22 +248,22 @@ onMounted(() => {
                 <Card v-for="item in order.items" :key="item.id">
                     <div class="mb-4 flex items-start justify-between gap-4">
                         <div>
-                            <p class="text-sm font-semibold uppercase text-slate-500">Item SKU: {{ item.item_sku ?? 'N/A' }}</p>
-                            <h3 class="mt-1 text-xl font-bold text-slate-950">{{ item.item_name }}</h3>
+                            <p class="text-xs font-semibold uppercase text-[#71717a]">Item SKU: {{ item.item_sku ?? 'N/A' }}</p>
+                            <h3 class="mt-1 text-xl font-semibold text-[#18181b]">{{ item.item_name }}</h3>
                         </div>
                         <Badge tone="info">{{ item.quantity }} item</Badge>
                     </div>
 
                     <div class="grid gap-4 md:grid-cols-4">
-                        <div><p class="text-xs text-slate-500">Product Code</p><p class="font-semibold">{{ item.product_code ?? 'Unmapped' }}</p></div>
-                        <div><p class="text-xs text-slate-500">Product Type</p><p class="font-semibold">{{ item.product_type ?? 'Pending' }}</p></div>
-                        <div><p class="text-xs text-slate-500">Panels</p><p class="font-semibold">{{ item.panel_summary ?? '-' }}</p></div>
-                        <div><p class="text-xs text-slate-500">Price</p><p class="font-semibold">{{ money(item.variant?.price_cents ?? 0) }}</p></div>
+                        <div><p class="text-xs text-[#71717a]">Product Code</p><p class="font-semibold">{{ item.product_code ?? 'Unmapped' }}</p></div>
+                        <div><p class="text-xs text-[#71717a]">Product Type</p><p class="font-semibold">{{ item.product_type ?? 'Pending' }}</p></div>
+                        <div><p class="text-xs text-[#71717a]">Panels</p><p class="font-semibold">{{ item.panel_summary ?? '-' }}</p></div>
+                        <div><p class="text-xs text-[#71717a]">Price</p><p class="font-semibold">{{ money(item.variant?.price_cents ?? 0) }}</p></div>
                     </div>
 
                     <div class="mt-5 grid gap-4 lg:grid-cols-[1fr_280px]">
                         <div>
-                            <div class="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                            <div class="mb-2 flex items-center gap-2 text-sm font-semibold text-[#4c4546]">
                                 <Image class="h-4 w-4" />
                                 Design Images
                             </div>
@@ -271,18 +271,18 @@ onMounted(() => {
                                 v-if="item.design_images?.[0]"
                                 :src="item.design_images[0]"
                                 :alt="item.item_name"
-                                class="aspect-[16/9] w-full rounded-md border border-slate-200 object-cover"
+                                class="aspect-[16/9] w-full rounded-2xl border border-zinc-200/70 object-cover"
                             >
                             <EmptyState v-else title="No design image" description="Artwork files will appear here after upload." :icon="Image" />
                         </div>
 
                         <div>
-                            <div class="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                            <div class="mb-2 flex items-center gap-2 text-sm font-semibold text-[#4c4546]">
                                 <Printer class="h-4 w-4" />
                                 Print Options
                             </div>
-                            <ul v-if="item.options && Object.keys(item.options).length" class="grid gap-2 text-sm text-slate-700">
-                                <li v-for="(value, key) in item.options" :key="key" class="rounded-md bg-slate-50 px-3 py-2">
+                            <ul v-if="item.options && Object.keys(item.options).length" class="grid gap-2 text-sm text-[#4c4546]">
+                                <li v-for="(value, key) in item.options" :key="key" class="rounded-2xl bg-white px-3 py-2">
                                     <strong>{{ key }}:</strong> {{ value }}
                                 </li>
                             </ul>
@@ -294,8 +294,8 @@ onMounted(() => {
                 <Card>
                     <div class="mb-4 flex items-center justify-between gap-3">
                         <div class="flex items-center gap-2">
-                            <FileText class="h-5 w-5 text-teal-700" />
-                            <h3 class="text-lg font-bold text-slate-950">Internal Notes</h3>
+                            <FileText class="h-5 w-5 text-[#18181b]" />
+                            <h3 class="panel-title">Internal Notes</h3>
                         </div>
                         <Button size="sm" variant="outline" @click="saveNotes"><Pencil class="h-4 w-4" /> Save notes</Button>
                     </div>
@@ -306,8 +306,8 @@ onMounted(() => {
             <div class="grid gap-5">
                 <Card>
                     <div class="mb-4 flex items-center gap-2">
-                        <PackageCheck class="h-5 w-5 text-teal-700" />
-                        <h3 class="text-lg font-bold text-slate-950">Status Transition</h3>
+                        <PackageCheck class="h-5 w-5 text-[#18181b]" />
+                        <h3 class="panel-title">Status Transition</h3>
                     </div>
                     <div v-if="allowedStatuses.length" class="grid gap-3">
                         <Select v-model="transitionForm.status" label="Next status">
@@ -323,17 +323,17 @@ onMounted(() => {
 
                 <Card>
                     <div class="mb-4 flex items-center gap-2">
-                        <Clock3 class="h-5 w-5 text-teal-700" />
-                        <h3 class="text-lg font-bold text-slate-950">Timeline</h3>
+                        <Clock3 class="h-5 w-5 text-[#18181b]" />
+                        <h3 class="panel-title">Timeline</h3>
                     </div>
                     <div v-if="statusEvents.length" class="grid gap-3">
-                        <div v-for="event in statusEvents" :key="event.id" class="rounded-md border border-slate-200 p-3">
+                        <div v-for="event in statusEvents" :key="event.id" class="rounded-2xl bg-white p-3">
                             <div class="flex items-center justify-between gap-3">
-                                <p class="font-semibold text-slate-950">{{ displayStatus(event.from_status) }} -> {{ displayStatus(event.to_status) }}</p>
+                                <p class="font-semibold text-[#18181b]">{{ displayStatus(event.from_status) }} -> {{ displayStatus(event.to_status) }}</p>
                                 <Badge tone="neutral">{{ dateLabel(event.created_at) }}</Badge>
                             </div>
-                            <p v-if="event.note" class="mt-2 text-sm text-slate-600">{{ event.note }}</p>
-                            <p class="mt-1 text-xs text-slate-500">{{ event.user?.name ?? 'System' }}</p>
+                            <p v-if="event.note" class="mt-2 text-sm text-[#4c4546]">{{ event.note }}</p>
+                            <p class="mt-1 text-xs text-[#71717a]">{{ event.user?.name ?? 'System' }}</p>
                         </div>
                     </div>
                     <EmptyState v-else title="No status events" description="Lifecycle events will appear after the first transition." :icon="Clock3" />
@@ -341,21 +341,21 @@ onMounted(() => {
 
                 <Card>
                     <div class="mb-4 flex items-center justify-between">
-                        <h3 class="text-lg font-bold text-slate-950">Issues</h3>
+                        <h3 class="panel-title">Issues</h3>
                         <RouterLink to="/issues/tickets">
                             <Button size="sm"><LifeBuoy class="h-4 w-4" /> Open Ticket</Button>
                         </RouterLink>
                     </div>
                     <div v-if="order.issues?.length" class="grid gap-3">
-                        <div v-for="issue in order.issues" :key="issue.id" class="rounded-md border border-slate-200 p-3">
+                        <div v-for="issue in order.issues" :key="issue.id" class="rounded-2xl bg-white p-3">
                             <div class="flex flex-wrap items-center gap-2">
                                 <Badge :tone="statusTone(issue.status)">{{ issue.status }}</Badge>
                                 <Badge :tone="issue.priority === 'urgent' ? 'danger' : issue.priority === 'high' ? 'warning' : 'neutral'">{{ issue.priority }}</Badge>
                                 <Badge v-if="issue.unread_notes_count" tone="info">{{ issue.unread_notes_count }} unread</Badge>
                             </div>
-                            <p class="mt-2 text-sm font-semibold text-slate-800">{{ issue.type === 'ticket' ? 'Ticket' : 'Claim' }} #{{ issue.id }}</p>
-                            <p class="mt-1 text-sm text-slate-700">{{ issue.description }}</p>
-                            <p class="mt-1 text-xs text-slate-500">{{ issue.comments?.length ?? 0 }} comments · {{ issue.assigned_to?.name ?? issue.assignedTo?.name ?? 'Unassigned' }}</p>
+                            <p class="mt-2 text-sm font-semibold text-[#18181b]">{{ issue.type === 'ticket' ? 'Ticket' : 'Claim' }} #{{ issue.id }}</p>
+                            <p class="mt-1 text-sm text-[#4c4546]">{{ issue.description }}</p>
+                            <p class="mt-1 text-xs text-[#71717a]">{{ issue.comments?.length ?? 0 }} comments · {{ issue.assigned_to?.name ?? issue.assignedTo?.name ?? 'Unassigned' }}</p>
                         </div>
                     </div>
                     <EmptyState v-else title="No issues for this order" description="Tickets and claims linked to this order will appear here." :icon="LifeBuoy" />
@@ -363,8 +363,8 @@ onMounted(() => {
 
                 <Card>
                     <div class="mb-4 flex items-center gap-2">
-                        <MapPin class="h-5 w-5 text-teal-700" />
-                        <h3 class="text-lg font-bold text-slate-950">Required Actions</h3>
+                        <MapPin class="h-5 w-5 text-[#18181b]" />
+                        <h3 class="panel-title">Required Actions</h3>
                     </div>
                     <div v-if="requiredActions.length" class="grid gap-3">
                         <div v-for="action in requiredActions" :key="action.id" class="rounded-md border border-amber-200 bg-amber-50 p-3">
@@ -378,20 +378,20 @@ onMounted(() => {
 
                 <Card>
                     <div class="mb-4 flex items-center gap-2">
-                        <FileText class="h-5 w-5 text-teal-700" />
-                        <h3 class="text-lg font-bold text-slate-950">Files & Audit</h3>
+                        <FileText class="h-5 w-5 text-[#18181b]" />
+                        <h3 class="panel-title">Files & Audit</h3>
                     </div>
                     <div v-if="mediaFiles.length" class="mb-4 grid gap-2">
-                        <a v-for="file in mediaFiles" :key="file.id" :href="file.url" class="rounded-md border border-slate-200 p-3 text-sm font-semibold text-teal-800">
+                        <a v-for="file in mediaFiles" :key="file.id" :href="file.url" class="rounded-2xl bg-white p-3 text-sm font-semibold text-[#18181b]">
                             {{ file.original_name }}
                         </a>
                     </div>
                     <EmptyState v-else class="mb-4" title="No order files" description="Artwork, proofs, and production files will appear here when attached." :icon="FileText" />
 
                     <div v-if="auditLogs.length" class="grid gap-2">
-                        <div v-for="log in auditLogs" :key="log.id" class="rounded-md bg-slate-50 p-3 text-sm">
-                            <p class="font-semibold text-slate-900">{{ log.event }}</p>
-                            <p class="text-slate-500">{{ dateLabel(log.created_at) }} · {{ log.user?.name ?? 'System' }}</p>
+                        <div v-for="log in auditLogs" :key="log.id" class="rounded-2xl bg-white p-3 text-sm">
+                            <p class="font-semibold text-[#18181b]">{{ log.event }}</p>
+                            <p class="text-[#71717a]">{{ dateLabel(log.created_at) }} · {{ log.user?.name ?? 'System' }}</p>
                         </div>
                     </div>
                     <EmptyState v-else title="No audit events" description="Address, notes, and lifecycle changes are logged here." :icon="FileText" />
